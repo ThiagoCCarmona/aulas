@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: plataforma_aulas
+    restart: unless-stopped
+    networks:
+      - proxy
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATA_DIR=/app/data
+      - DB_PATH=/app/data/plataforma.db
+      - UPLOADS_DIR=/app/uploads
+      - STATIC_PATH=/app/public
+      - JWT_SECRET=${JWT_SECRET:-plataforma_aulas_secret_key_production_2026}
+      - DOMAIN=${DOMAIN:-aulas.tccodes.com.br}
+    volumes:
+      # Volumes persistentes para banco SQLite e uploads de arquivos
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    labels:
+      - "traefik.enable=true"
+      # Roteamento dinâmico para o domínio raiz e subdomínios dos professores (ex: thiago.aulas.tccodes.com.br)
+      - "traefik.http.routers.plataforma-aulas.rule=Host(`${DOMAIN:-aulas.tccodes.com.br}`) || HostRegexp(`{subdomain:[a-z0-9-]+}.${DOMAIN:-aulas.tccodes.com.br}`)"
+      - "traefik.http.routers.plataforma-aulas.entrypoints=websecure"
+      - "traefik.http.routers.plataforma-aulas.tls.certresolver=myresolver"
+      - "traefik.http.services.plataforma-aulas.loadbalancer.server.port=3001"
+
+networks:
+  proxy:
+    external: true
