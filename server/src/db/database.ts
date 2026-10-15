@@ -212,28 +212,32 @@ export function initDatabase() {
 }
 
 function seedDefaultData() {
-  const existingTenant = db.prepare('SELECT id FROM tenants WHERE slug = ?').get('thiago');
+  const adminEmail = process.env.ADMIN_EMAIL || 'carmona.c.thiago@gmail.com';
+  const adminPass = process.env.ADMIN_PASSWORD || 'admin123';
+  const adminName = process.env.ADMIN_NAME || 'Prof. Thiago Carmona';
+  const adminPhone = process.env.ADMIN_PHONE || '5511999998888';
+
+  const tenantId = 'tenant-thiago-01';
+  const existingTenant = db.prepare('SELECT id FROM tenants WHERE slug = ?').get('thiago') as any;
   if (!existingTenant) {
-    const tenantId = 'tenant-thiago-01';
     db.prepare(`
       INSERT INTO tenants (id, slug, name, email, pix_key, pix_name, pix_city, phone_whatsapp)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       tenantId,
       'thiago',
-      'Prof. Thiago',
-      'thiago@aulas.com',
+      adminName,
+      adminEmail,
       '11999998888',
-      'Thiago Silva',
+      'Thiago Corobinski Carmona',
       'Sao Paulo',
-      '5511999998888'
+      adminPhone
     );
 
     const salt = bcrypt.genSaltSync(10);
-    const teacherPasswordHash = bcrypt.hashSync('admin123', salt);
-    const studentPasswordHash = bcrypt.hashSync('aluno123', salt);
+    const teacherPasswordHash = bcrypt.hashSync(adminPass, salt);
 
-    // Criar Usuário Professor
+    // Criar Usuário Professor Administrador
     const teacherId = 'user-teacher-thiago';
     db.prepare(`
       INSERT INTO users (id, tenant_id, name, email, password_hash, role, phone)
@@ -241,226 +245,42 @@ function seedDefaultData() {
     `).run(
       teacherId,
       tenantId,
-      'Prof. Thiago',
-      'thiago@aulas.com',
+      adminName,
+      adminEmail,
       teacherPasswordHash,
       'teacher',
-      '5511999998888'
+      adminPhone
     );
-
-    // Criar Aluno 1: Carlos (Informática / Vibe Coding)
-    const carlosId = 'user-student-carlos';
-    db.prepare(`
-      INSERT INTO users (id, tenant_id, name, email, password_hash, role, phone)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      carlosId,
-      tenantId,
-      'Carlos Eduardo (Vibe Coding & IA)',
-      'carlos@aluno.com',
-      studentPasswordHash,
-      'student',
-      '5511988887777'
-    );
-
-    db.prepare(`
-      INSERT INTO student_profiles (id, user_id, tenant_id, package_total_classes, package_price, weekly_schedules, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'profile-carlos',
-      carlosId,
-      tenantId,
-      4,
-      400.00,
-      'Terças às 14h e Quintas às 14h',
-      'Foco em desenvolvimento ágil com IA e automação.'
-    );
-
-    // Pacote em andamento para o Carlos (2 de 4 aulas concluídas)
-    const carlosPackageId = 'pkg-carlos-01';
-    db.prepare(`
-      INSERT INTO packages (id, tenant_id, student_id, total_classes, price, status)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(carlosPackageId, tenantId, carlosId, 4, 400.00, 'in_progress');
-
-    // Aula 1 do Carlos
-    const class1Id = 'class-carlos-01';
-    db.prepare(`
-      INSERT INTO classes (id, tenant_id, student_id, package_id, date, title, summary, modality, homework)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      class1Id,
-      tenantId,
-      carlosId,
-      carlosPackageId,
-      '2026-10-06 14:00',
-      'Introdução ao Vibe Coding e Configuração de Ambiente',
-      'Explicação dos princípios de programação orientada a IA, instalação do Node.js, Git e primeiros passos no terminal.',
-      'presencial',
-      'Criar um repositório no GitHub e clonar o projeto inicial.'
-    );
-
-    // Material da Aula 1 (Markdown com código)
-    db.prepare(`
-      INSERT INTO materials (id, tenant_id, student_id, class_id, title, type, content_md)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'mat-carlos-01',
-      tenantId,
-      carlosId,
-      class1Id,
-      'Guia Prático: Primeiros Passos no Terminal & Git',
-      'md',
-      `# Guia de Configuração: Terminal & Git
-
-Seja bem-vindo ao mundo do **Vibe Coding**! Aqui estão os comandos essenciais vistos na nossa aula:
-
-### 1. Clonando o Repositório
-\`\`\`bash
-git clone https://github.com/exemplo/meu-primeiro-projeto.git
-cd meu-primeiro-projeto
-\`\`\`
-
-### 2. Instalando as Dependências
-\`\`\`bash
-npm install
-npm run dev
-\`\`\`
-
-> 💡 **Dica do Professor:** Sempre verifique a versão do Node antes de começar com \`node -v\`.
-`
-    );
-
-    // Aula 2 do Carlos
-    const class2Id = 'class-carlos-02';
-    db.prepare(`
-      INSERT INTO classes (id, tenant_id, student_id, package_id, date, title, summary, modality, homework, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed')
-    `).run(
-      class2Id,
-      tenantId,
-      carlosId,
-      carlosPackageId,
-      '2026-10-08 14:00',
-      'Engenharia de Prompt para Código e Arquitetura de Componentes',
-      'Construção de componentes React utilizando modelos de linguagem, modularização e testes rápidos.',
-      'presencial',
-      'Desenvolver o componente de cabeçalho da sua aplicação.'
-    );
-
-    // Aula 3 do Carlos (Agendada / Futura)
-    const class3Id = 'class-carlos-03';
-    db.prepare(`
-      INSERT INTO classes (id, tenant_id, student_id, package_id, date, title, summary, modality, status, online_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)
-    `).run(
-      class3Id,
-      tenantId,
-      carlosId,
-      carlosPackageId,
-      '2026-10-15 14:00',
-      'APIs, Endpoints e Integração de Inteligência Artificial',
-      'Construção de rotas backend com Node.js, chamadas a APIs de inteligência artificial e tratamento de respostas estruturadas.',
-      'online',
-      'https://meet.google.com/vibe-coding-lab'
-    );
-
-    // Aula 4 do Carlos (Planejada / Futura)
-    const class4Id = 'class-carlos-04';
-    db.prepare(`
-      INSERT INTO classes (id, tenant_id, student_id, package_id, date, title, summary, modality, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'planned')
-    `).run(
-      class4Id,
-      tenantId,
-      carlosId,
-      carlosPackageId,
-      '2026-10-20 14:00',
-      'Deploy em VPS, Containers Docker e Publicação',
-      'Fechamento do pacote: empacotamento com containers Docker, proxy reverso Traefik e deploy em produção.',
-      'presencial'
-    );
-
-    // E-book Oficial em PDF para o Carlos (Visualizável diretamente na plataforma)
-    db.prepare(`
-      INSERT INTO materials (id, tenant_id, student_id, title, type, file_url)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      'mat-carlos-ebook',
-      tenantId,
-      carlosId,
-      'E-book Oficial: Do Básico ao Vibe Coding & IA (PDF)',
-      'pdf',
-      '/uploads/ebook_vibe_coding.pdf'
-    );
-
-    // Criar Aluna 2: Mariana (Letramento Digital)
-    const marianaId = 'user-student-mariana';
-    db.prepare(`
-      INSERT INTO users (id, tenant_id, name, email, password_hash, role, phone)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      marianaId,
-      tenantId,
-      'Dona Mariana (Letramento Digital)',
-      'mariana@aluno.com',
-      studentPasswordHash,
-      'student',
-      '5511977776666'
-    );
-
-    db.prepare(`
-      INSERT INTO student_profiles (id, user_id, tenant_id, package_total_classes, package_price, weekly_schedules, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'profile-mariana',
-      marianaId,
-      tenantId,
-      4,
-      300.00,
-      'Quartas-feiras às 10h',
-      'Aluna da terceira idade, aprendendo navegação segura, e-mails e gerenciamento de arquivos.'
-    );
-
-    // Mariana com 4 de 4 aulas (pronta para o professor testar o fechamento de pacote ou já fechado para teste)
-    const marianaPkg = 'pkg-mariana-01';
-    db.prepare(`
-      INSERT INTO packages (id, tenant_id, student_id, total_classes, price, status)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(marianaPkg, tenantId, marianaId, 4, 300.00, 'in_progress');
-
-    for (let i = 1; i <= 4; i++) {
+  } else {
+    // Sincroniza dados do professor principal garantindo que possa logar com email e senha reais
+    const teacherUser = db.prepare("SELECT * FROM users WHERE role = 'teacher' LIMIT 1").get() as any;
+    if (teacherUser) {
+      const salt = bcrypt.genSaltSync(10);
+      const teacherPasswordHash = bcrypt.hashSync(adminPass, salt);
       db.prepare(`
-        INSERT INTO classes (id, tenant_id, student_id, package_id, date, title, summary, modality)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        `class-mariana-${i}`,
-        tenantId,
-        marianaId,
-        marianaPkg,
-        `2026-09-${10 + i * 5} 10:00`,
-        `Módulo ${i}: Prática de Informática Básica`,
-        `Aula prática cobrindo navegação segura, antivírus e organização de pastas no computador.`,
-        'presencial'
-      );
+        UPDATE users 
+        SET email = ?, name = ?, password_hash = ?
+        WHERE id = ?
+      `).run(adminEmail, adminName, teacherPasswordHash, teacherUser.id);
+
+      db.prepare(`
+        UPDATE tenants
+        SET name = ?, email = ?
+        WHERE id = ?
+      `).run(adminName, adminEmail, existingTenant.id);
     }
   }
 
-  // Garantir que tenant secundário 'maria' existe para testes multi-tenant
-  const existingMaria = db.prepare('SELECT id FROM tenants WHERE slug = ?').get('maria');
-  if (!existingMaria) {
-    db.prepare(`
-      INSERT INTO tenants (id, slug, name, email, pix_key, pix_name, pix_city, phone_whatsapp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'tenant-maria-02',
-      'maria',
-      'Profª. Maria',
-      'maria@aulas.com',
-      '11988887777',
-      'Maria Souza',
-      'Rio de Janeiro',
-      '5511988887777'
-    );
+  // Limpeza de quaisquer dados mockados de testes residuais
+  try {
+    const mockStudentIds = ['user-student-carlos', 'user-student-mariana'];
+    const placeholders = mockStudentIds.map(() => '?').join(',');
+    db.prepare(`DELETE FROM classes WHERE student_id IN (${placeholders})`).run(...mockStudentIds);
+    db.prepare(`DELETE FROM materials WHERE student_id IN (${placeholders})`).run(...mockStudentIds);
+    db.prepare(`DELETE FROM packages WHERE student_id IN (${placeholders})`).run(...mockStudentIds);
+    db.prepare(`DELETE FROM student_profiles WHERE user_id IN (${placeholders})`).run(...mockStudentIds);
+    db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).run(...mockStudentIds);
+  } catch (err) {
+    // Silencioso se tabelas ainda não tinham esses registros
   }
 }

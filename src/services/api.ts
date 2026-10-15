@@ -14,16 +14,25 @@ const API_BASE = '/api';
 export function getTenantSlug(): string {
   // 1. LocalStorage se configurado manualmente
   const saved = localStorage.getItem('tenantSlug');
-  if (saved) return saved;
+  if (saved && saved !== 'aulas' && saved !== 'app') return saved;
 
-  // 2. Subdomínio
-  const host = window.location.hostname;
+  // 2. Subdomínio do professor
+  const host = window.location.hostname.toLowerCase();
+  
+  // Ignora IPs numéricos (ex: 127.0.0.1, 192.168.x.x) e localhost
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host === 'localhost') {
+    return 'thiago';
+  }
+
   const parts = host.split('.');
-  if (parts.length >= 2 && parts[0] !== 'www' && parts[0] !== 'localhost' && parts[0] !== '127') {
+  const systemPrefixes = ['www', 'aulas', 'app', 'plataforma', 'portal', 'api', 'admin', 'mail'];
+
+  // Só considera subdomínio se não for um prefixo de infraestrutura/sistema
+  if (parts.length >= 2 && !systemPrefixes.includes(parts[0])) {
     return parts[0];
   }
 
-  // 3. Padrão inicial
+  // 3. Padrão inicial para o tenant de produção
   return 'thiago';
 }
 

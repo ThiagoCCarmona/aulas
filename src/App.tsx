@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Tenant } from './types';
-import { api, getTenantSlug, setTenantSlug } from './services/api';
+import { api, getTenantSlug } from './services/api';
 import { Navbar } from './components/Navbar';
 import { StudentDashboard } from './components/StudentDashboard';
 import { TeacherDashboard } from './components/TeacherDashboard';
@@ -12,8 +12,6 @@ import {
   Phone,
   ArrowRight,
   ShieldCheck,
-  User as UserIcon,
-  Sparkles,
   Globe,
   Sun,
   Moon
@@ -102,20 +100,6 @@ export function App() {
     }
   };
 
-  const handleQuickLogin = async (quickId: string, quickPass: string) => {
-    setIdentifier(quickId);
-    setPassword(quickPass);
-    try {
-      setLoginLoading(true);
-      setLoginError(null);
-      const res = await api.login(quickId, quickPass);
-      setUser(res.user);
-    } catch (err: any) {
-      setLoginError(err.message || 'Erro ao realizar login rápido.');
-    } finally {
-      setLoginLoading(false);
-    }
-  };
 
   const handleLogout = () => {
     api.logout();
@@ -232,61 +216,25 @@ export function App() {
               </button>
             </form>
 
-            {/* Acessos Rápidos de Demonstração */}
+            {/* Informações de Suporte e Segurança */}
             <div className={`pt-4 border-t space-y-3 ${theme === 'light' ? 'border-slate-100' : 'border-slate-800/80'}`}>
-              <span className={`text-[11px] font-bold uppercase tracking-wider block text-center ${theme === 'light' ? 'text-slate-400' : 'text-slate-500'}`}>
-                Acessos Rápidos (E-mail ou WhatsApp)
-              </span>
-
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('thiago@aulas.com', 'admin123')}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs text-left transition-all cursor-pointer ${
-                    theme === 'light'
-                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                      : 'bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 font-medium">
-                    <ShieldCheck size={15} className="text-emerald-500" />
-                    Professor Thiago
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">admin123</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('5511988887777', 'aluno123')}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs text-left transition-all cursor-pointer ${
-                    theme === 'light'
-                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                      : 'bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 font-medium">
-                    <Phone size={14} className="text-indigo-500" />
-                    Carlos (Login via WhatsApp)
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">aluno123</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('mariana@aluno.com', 'aluno123')}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs text-left transition-all cursor-pointer ${
-                    theme === 'light'
-                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                      : 'bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white'
-                  }`}
-                >
-                  <span className="flex items-center gap-2 font-medium">
-                    <UserIcon size={15} className="text-purple-500" />
-                    Mariana (Letramento Digital)
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">aluno123</span>
-                </button>
+              <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
+                <ShieldCheck size={14} className="text-emerald-500" />
+                <span>Ambiente seguro com criptografia de ponta a ponta</span>
               </div>
+              {tenant?.phone_whatsapp && (
+                <div className="text-center">
+                  <a
+                    href={`https://wa.me/${tenant.phone_whatsapp}?text=${encodeURIComponent('Olá professor, preciso de suporte para acessar a plataforma.')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-400 transition-colors"
+                  >
+                    <Phone size={12} />
+                    <span>Primeiro acesso ou esqueceu sua senha? Fale pelo WhatsApp</span>
+                  </a>
+                </div>
+              )}
             </div>
           </div>
 
