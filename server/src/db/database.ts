@@ -33,13 +33,13 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
       name TEXT NOT NULL,
-      email TEXT NOT NULL,
+      email TEXT,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL CHECK(role IN ('teacher', 'student', 'superadmin')),
       phone TEXT,
+      must_change_password INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
-      UNIQUE(tenant_id, email)
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS student_profiles (
@@ -107,11 +107,25 @@ export function initDatabase() {
       FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS material_recipients (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      material_id TEXT NOT NULL,
+      student_id TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+      FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE,
+      FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(material_id, student_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_packages_student ON packages(student_id, status);
     CREATE INDEX IF NOT EXISTS idx_classes_package ON classes(package_id);
     CREATE INDEX IF NOT EXISTS idx_classes_student ON classes(student_id);
     CREATE INDEX IF NOT EXISTS idx_materials_student ON materials(student_id);
+    CREATE INDEX IF NOT EXISTS idx_material_recipients_student ON material_recipients(student_id);
+    CREATE INDEX IF NOT EXISTS idx_material_recipients_material ON material_recipients(material_id);
   `);
 
   // Migração suave para instâncias existentes: classes com novos status e materials com type 'image'
@@ -188,25 +202,35 @@ export function initDatabase() {
   }
 
   try {
-    const hasC3 = db.prepare("SELECT id FROM classes WHERE id = 'class-carlos-03'").get();
-    if (!hasC3) {
-      const cPkg = db.prepare("SELECT id FROM packages WHERE student_id = 'user-student-carlos' AND status = 'in_progress'").get() as any;
-      const targetPkgId = cPkg ? cPkg.id : 'pkg-carlos-01';
-      db.prepare(`
-        INSERT OR IGNORE INTO classes (id, tenant_id, student_id, package_id, date, title, summary, modality, status, online_url)
-        VALUES ('class-carlos-03', 'tenant-thiago-01', 'user-student-carlos', ?, '2026-10-15 14:00', 'APIs, Endpoints e Integração de Inteligência Artificial', 'Construção de rotas backend com Node.js, chamadas a APIs de inteligência artificial e tratamento de respostas estruturadas.', 'online', 'scheduled', 'https://meet.google.com/vibe-coding-lab')
-      `).run(targetPkgId);
-
-      db.prepare(`
-        INSERT OR IGNORE INTO classes (id, tenant_id, student_id, package_id, date, title, summary, modality, status)
-        VALUES ('class-carlos-04', 'tenant-thiago-01', 'user-student-carlos', ?, '2026-10-20 14:00', 'Deploy em VPS, Containers Docker e Publicação', 'Fechamento do pacote: empacotamento com containers Docker, proxy reverso Traefik e deploy em produção.', 'presencial', 'planned')
-      `).run(targetPkgId);
+    const usersTable = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get() as any;
+    if (usersTable && usersTable.sql && (!usersTable.sql.includes('must_change_password') || usersTable.sql.includes('email TEXT NOT NULL') || usersTable.sql.includes('UNIQUE(tenant_id, email)'))) {
+      db.transaction(() => {
+        db.exec("PRAGMA foreign_keys = OFF");
+        db.exec(`
+          CREATE TABLE users_new (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            email TEXT,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('teacher', 'student', 'superadmin')),
+            phone TEXT,
+            must_change_password INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+          );
+          INSERT INTO users_new (id, tenant_id, name, email, password_hash, role, phone, must_change_password, created_at)
+          SELECT id, tenant_id, name, email, password_hash, role, phone, 1, created_at FROM users;
+          DROP TABLE users;
+          ALTER TABLE users_new RENAME TO users;
+          CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
+        `);
+        db.exec("PRAGMA foreign_keys = ON");
+      })();
     }
-
-    db.prepare(`
-      UPDATE materials SET type = 'pdf', file_url = '/uploads/ebook_vibe_coding.pdf' WHERE id = 'mat-carlos-ebook'
-    `).run();
-  } catch (_) {}
+  } catch (err) {
+    console.error('Erro na migração de users:', err);
+  }
 
   seedDefaultData();
 }

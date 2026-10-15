@@ -39,12 +39,16 @@ export const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) {
-      setError('Nome e e-mail são obrigatórios.');
+    if (!name.trim()) {
+      setError('O nome do aluno é obrigatório.');
+      return;
+    }
+    if (!email.trim() && !phone.trim()) {
+      setError('Informe ao menos o WhatsApp (Telefone) ou E-mail para acesso do aluno.');
       return;
     }
     if (!isEditing && !password.trim()) {
-      setError('A senha é obrigatória para o cadastro do aluno.');
+      setError('A senha provisória é obrigatória para o primeiro acesso do aluno.');
       return;
     }
 
@@ -136,46 +140,48 @@ export const StudentManagementModal: React.FC<StudentManagementModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
-                <Mail size={13} className="text-slate-400" />
-                E-mail (Login) *
+                <Phone size={13} className="text-slate-400" />
+                WhatsApp / Telefone (Acesso)
               </label>
               <input
-                type="email"
-                required
-                disabled={isEditing}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="aluno@email.com"
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                type="text"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="Ex: 5511999998888"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
-                <Key size={13} className="text-slate-400" />
-                {isEditing ? 'Nova Senha (Opcional)' : 'Senha de Acesso *'}
+                <Mail size={13} className="text-slate-400" />
+                E-mail (Opcional)
               </label>
               <input
-                type="password"
-                required={!isEditing}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={isEditing ? 'Deixe em branco p/ manter' : 'Senha segura'}
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                type="email"
+                disabled={isEditing}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="aluno@email.com (opcional)"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
-              <Phone size={13} className="text-slate-400" />
-              WhatsApp do Aluno (com DDD)
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Key size={13} className="text-slate-400" />
+                {isEditing ? 'Redefinir Senha (Opcional)' : 'Senha Provisória de Acesso *'}
+              </span>
+              <span className="text-[10px] text-amber-500 font-medium">Troca forçada no 1º acesso</span>
             </label>
             <input
-              type="text"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="Ex: 5511999998888"
+              type="password"
+              required={!isEditing}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={isEditing ? 'Deixe em branco para manter a atual' : 'Defina a senha inicial provisória'}
               className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
             />
           </div>

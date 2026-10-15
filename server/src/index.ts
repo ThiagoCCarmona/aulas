@@ -148,16 +148,19 @@ app.post('/api/auth/login', loginLimiter, (req: TenantRequest, res) => {
     SELECT * FROM users
     WHERE tenant_id = ?
       AND (
-        LOWER(email) = LOWER(?)
+        (email IS NOT NULL AND LOWER(email) = LOWER(?))
         OR (role = 'teacher' AND LOWER(?) IN ('thiago@aulas.com', 'carmona.c.thiago@gmail.com'))
         OR phone = ?
-        OR (LENGTH(?) >= 8 AND REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '(', ''), ')', '') LIKE ?)
+        OR (phone IS NOT NULL AND LENGTH(?) >= 8 AND REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '(', ''), ')', '') LIKE ?)
+        OR LOWER(name) = LOWER(?)
       )
-  `).get(req.tenant!.id, loginIdentifier, loginIdentifier, loginIdentifier, cleanPhone, `%${cleanPhone}%`) as any;
+  `).get(req.tenant!.id, loginIdentifier, loginIdentifier, loginIdentifier, cleanPhone, `%${cleanPhone}%`, loginIdentifier) as any;
 
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Credenciais inválidas' });
   }
+
+  const mustChangePassword = Boolean(user.must_change_password);
 
   const token = signToken({
     id: user.id,
@@ -165,23 +168,26 @@ app.post('/api/auth/login', loginLimiter, (req: TenantRequest, res) => {
     name: user.name,
     email: user.email,
     role: user.role,
-    phone: user.phone
+    phone: user.phone,
+    must_change_password: mustChangePassword
   });
 
   res.json({
     token,
+    must_change_password: mustChangePassword,
     user: {
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
-      phone: user.phone
+      phone: user.phone,
+      must_change_password: mustChangePassword
     }
   });
 });
 
 app.get('/api/auth/me', authMiddleware, (req: AuthRequest, res) => {
-  const user = db.prepare('SELECT id, name, email, role, phone, tenant_id FROM users WHERE id = ?').get(req.user!.id) as any;
+  const user = db.prepare('SELECT id, name, email, role, phone, tenant_id, must_change_password FROM users WHERE id = ?').get(req.user!.id) as any;
   if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
 
   let profile = null;
@@ -189,7 +195,63 @@ app.get('/api/auth/me', authMiddleware, (req: AuthRequest, res) => {
     profile = db.prepare('SELECT * FROM student_profiles WHERE user_id = ?').get(user.id);
   }
 
-  res.json({ user, profile, tenant: req.tenant });
+  res.json({
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      phone: user.phone,
+      tenant_id: user.tenant_id,
+      must_change_password: Boolean(user.must_change_password)
+    },
+    profile,
+    tenant: req.tenant
+  });
+});
+
+app.post('/api/auth/change-password', authMiddleware, (req: AuthRequest, res) => {
+  const { new_password, confirm_password } = req.body;
+  if (!new_password || typeof new_password !== 'string' || new_password.trim().length < 6) {
+    return res.status(400).json({ error: 'A nova senha deve possuir no mínimo 6 caracteres' });
+  }
+  if (confirm_password && new_password !== confirm_password) {
+    return res.status(400).json({ error: 'A confirmação de senha não confere' });
+  }
+
+  const salt = bcrypt.genSaltSync(10);
+  const passwordHash = bcrypt.hashSync(new_password.trim(), salt);
+
+  db.prepare(`
+    UPDATE users
+    SET password_hash = ?,
+        must_change_password = 0
+    WHERE id = ? AND tenant_id = ?
+  `).run(passwordHash, req.user!.id, req.tenant!.id);
+
+  const updatedUser = db.prepare('SELECT id, name, email, role, phone, tenant_id, must_change_password FROM users WHERE id = ?').get(req.user!.id) as any;
+  const token = signToken({
+    id: updatedUser.id,
+    tenant_id: updatedUser.tenant_id,
+    name: updatedUser.name,
+    email: updatedUser.email,
+    role: updatedUser.role,
+    phone: updatedUser.phone,
+    must_change_password: false
+  });
+
+  res.json({
+    message: 'Senha alterada com sucesso! Seu acesso está seguro.',
+    token,
+    user: {
+      id: updatedUser.id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      role: updatedUser.role,
+      phone: updatedUser.phone,
+      must_change_password: false
+    }
+  });
 });
 
 // ==========================================
@@ -214,26 +276,43 @@ app.get('/api/students', authMiddleware, teacherOnly, (req: AuthRequest, res) =>
 
 app.post('/api/students', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
   const { name, email, password, phone, package_total_classes, package_price, weekly_schedules, notes } = req.body;
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: 'Nome, email e senha são obrigatórios' });
+  if (!name || !name.trim() || !password || !password.trim()) {
+    return res.status(400).json({ error: 'Nome e senha de acesso são obrigatórios' });
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE tenant_id = ? AND email = ?').get(req.tenant!.id, email);
-  if (existing) {
-    return res.status(400).json({ error: 'Já existe um aluno com este e-mail' });
+  const cleanEmail = email && typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null;
+  const cleanPhone = phone && typeof phone === 'string' && phone.trim() ? phone.trim() : null;
+
+  if (!cleanEmail && !cleanPhone) {
+    return res.status(400).json({ error: 'Informe ao menos o WhatsApp (Telefone) ou E-mail para identificação do aluno' });
+  }
+
+  if (cleanEmail) {
+    const existingEmail = db.prepare('SELECT id FROM users WHERE tenant_id = ? AND LOWER(email) = ?').get(req.tenant!.id, cleanEmail);
+    if (existingEmail) {
+      return res.status(400).json({ error: 'Já existe um aluno cadastrado com este e-mail' });
+    }
+  }
+
+  if (cleanPhone) {
+    const existingPhone = db.prepare('SELECT id FROM users WHERE tenant_id = ? AND phone = ?').get(req.tenant!.id, cleanPhone);
+    if (existingPhone) {
+      return res.status(400).json({ error: 'Já existe um aluno cadastrado com este telefone/WhatsApp' });
+    }
   }
 
   const userId = `user-student-${crypto.randomUUID()}`;
   const profileId = `profile-${crypto.randomUUID()}`;
-  const passwordHash = bcrypt.hashSync(password, 10);
+  const salt = bcrypt.genSaltSync(10);
+  const passwordHash = bcrypt.hashSync(password.trim(), salt);
   const totalClasses = Number(package_total_classes) || 4;
   const price = Number(package_price) || 350.00;
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO users (id, tenant_id, name, email, password_hash, role, phone)
-      VALUES (?, ?, ?, ?, ?, 'student', ?)
-    `).run(userId, req.tenant!.id, name, email, passwordHash, phone || null);
+      INSERT INTO users (id, tenant_id, name, email, password_hash, role, phone, must_change_password)
+      VALUES (?, ?, ?, ?, ?, 'student', ?, 1)
+    `).run(userId, req.tenant!.id, name.trim(), cleanEmail, passwordHash, cleanPhone);
 
     db.prepare(`
       INSERT INTO student_profiles (id, user_id, tenant_id, package_total_classes, package_price, weekly_schedules, notes)
@@ -253,17 +332,27 @@ app.post('/api/students', authMiddleware, teacherOnly, (req: AuthRequest, res) =
 
 app.put('/api/students/:id', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
   const studentId = req.params.id;
-  const { name, phone, package_total_classes, package_price, weekly_schedules, notes, active, password } = req.body;
+  const { name, email, phone, package_total_classes, package_price, weekly_schedules, notes, active, password } = req.body;
 
   db.transaction(() => {
-    db.prepare(`
-      UPDATE users SET name = COALESCE(?, name), phone = COALESCE(?, phone)
-      WHERE id = ? AND tenant_id = ?
-    `).run(name, phone, studentId, req.tenant!.id);
+    const cleanEmail = email !== undefined ? (email && typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null) : undefined;
+    
+    if (cleanEmail !== undefined) {
+      db.prepare(`
+        UPDATE users SET name = COALESCE(?, name), email = ?, phone = COALESCE(?, phone)
+        WHERE id = ? AND tenant_id = ?
+      `).run(name, cleanEmail, phone, studentId, req.tenant!.id);
+    } else {
+      db.prepare(`
+        UPDATE users SET name = COALESCE(?, name), phone = COALESCE(?, phone)
+        WHERE id = ? AND tenant_id = ?
+      `).run(name, phone, studentId, req.tenant!.id);
+    }
 
-    if (password) {
-      const hash = bcrypt.hashSync(password, 10);
-      db.prepare('UPDATE users SET password_hash = ? WHERE id = ? AND tenant_id = ?').run(hash, studentId, req.tenant!.id);
+    if (password && typeof password === 'string' && password.trim()) {
+      const salt = bcrypt.genSaltSync(10);
+      const hash = bcrypt.hashSync(password.trim(), salt);
+      db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ? AND tenant_id = ?').run(hash, studentId, req.tenant!.id);
     }
 
     db.prepare(`
@@ -274,7 +363,15 @@ app.put('/api/students/:id', authMiddleware, teacherOnly, (req: AuthRequest, res
           notes = COALESCE(?, notes),
           active = COALESCE(?, active)
       WHERE user_id = ? AND tenant_id = ?
-    `).run(package_total_classes, package_price, weekly_schedules, notes, active, studentId, req.tenant!.id);
+    `).run(
+      package_total_classes !== undefined ? Number(package_total_classes) : null,
+      package_price !== undefined ? Number(package_price) : null,
+      weekly_schedules,
+      notes,
+      active !== undefined ? Number(active) : null,
+      studentId,
+      req.tenant!.id
+    );
   })();
 
   res.json({ message: 'Aluno atualizado com sucesso' });
@@ -641,35 +738,88 @@ app.get('/api/materials/student/:studentId', authMiddleware, (req: AuthRequest, 
     return res.status(403).json({ error: 'Acesso não autorizado' });
   }
 
-  // Materiais dedicados ao aluno ou compartilhados com todos (student_id IS NULL)
+  // Materiais dedicados ao aluno, compartilhados com todos (sem restrição específica) ou com destinatários múltiplos selecionados
   const materials = db.prepare(`
     SELECT m.*, c.title as class_title, c.date as class_date
     FROM materials m
     LEFT JOIN classes c ON c.id = m.class_id
-    WHERE m.tenant_id = ? AND (m.student_id = ? OR m.student_id IS NULL)
+    WHERE m.tenant_id = ? AND (
+      (m.student_id IS NULL AND NOT EXISTS (SELECT 1 FROM material_recipients mr WHERE mr.material_id = m.id))
+      OR m.student_id = ?
+      OR EXISTS (SELECT 1 FROM material_recipients mr WHERE mr.material_id = m.id AND mr.student_id = ?)
+    )
     ORDER BY m.created_at DESC
-  `).all(req.tenant!.id, studentId);
+  `).all(req.tenant!.id, studentId, studentId);
+
+  res.json(materials);
+});
+
+app.get('/api/materials', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
+  const materials = db.prepare(`
+    SELECT m.*, c.title as class_title,
+           (SELECT COUNT(*) FROM material_recipients mr WHERE mr.material_id = m.id) as recipient_count,
+           (SELECT GROUP_CONCAT(u.name, ', ') FROM material_recipients mr JOIN users u ON u.id = mr.student_id WHERE mr.material_id = m.id) as recipient_names
+    FROM materials m
+    LEFT JOIN classes c ON c.id = m.class_id
+    WHERE m.tenant_id = ?
+    ORDER BY m.created_at DESC
+  `).all(req.tenant!.id);
 
   res.json(materials);
 });
 
 app.post('/api/materials', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
-  const { student_id, class_id, title, type, file_url, external_url, content_md } = req.body;
+  const { student_ids, student_id, class_id, title, type, file_url, external_url, content_md } = req.body;
   if (!title || !type) {
     return res.status(400).json({ error: 'Título e tipo de material são obrigatórios' });
   }
 
-  const id = `mat-${crypto.randomUUID()}`;
-  db.prepare(`
-    INSERT INTO materials (id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.tenant!.id, student_id || null, class_id || null, title, type, file_url || null, external_url || null, content_md || null);
+  let targetStudentIds: string[] = [];
+  if (Array.isArray(student_ids)) {
+    targetStudentIds = student_ids.filter((id: any) => typeof id === 'string' && id && id !== 'all');
+  } else if (student_id && student_id !== 'all') {
+    targetStudentIds = [student_id];
+  }
 
-  res.status(201).json({ message: 'Material cadastrado com sucesso', id });
+  const id = `mat-${crypto.randomUUID()}`;
+  const isGlobal = targetStudentIds.length === 0;
+
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO materials (id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      req.tenant!.id,
+      targetStudentIds.length === 1 ? targetStudentIds[0] : null,
+      class_id || null,
+      title,
+      type,
+      file_url || null,
+      external_url || null,
+      content_md || null
+    );
+
+    // Se houver destinatários selecionados (1, 2, 3 ou mais), vincula na tabela material_recipients
+    if (!isGlobal) {
+      const insertRecipient = db.prepare(`
+        INSERT OR IGNORE INTO material_recipients (id, tenant_id, material_id, student_id)
+        VALUES (?, ?, ?, ?)
+      `);
+      for (const sId of targetStudentIds) {
+        insertRecipient.run(`mr-${crypto.randomUUID()}`, req.tenant!.id, id, sId);
+      }
+    }
+  })();
+
+  res.status(201).json({ message: 'Material cadastrado com sucesso', id, recipient_count: targetStudentIds.length });
 });
 
 app.delete('/api/materials/:id', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
-  db.prepare('DELETE FROM materials WHERE id = ? AND tenant_id = ?').run(req.params.id, req.tenant!.id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM material_recipients WHERE material_id = ? AND tenant_id = ?').run(req.params.id, req.tenant!.id);
+    db.prepare('DELETE FROM materials WHERE id = ? AND tenant_id = ?').run(req.params.id, req.tenant!.id);
+  })();
   res.json({ message: 'Material removido' });
 });
 
@@ -738,6 +888,10 @@ if (fs.existsSync(STATIC_PATH)) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`🚀 Plataforma de Aulas API rodando na porta ${PORT}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`🚀 Plataforma de Aulas API rodando na porta ${PORT}`);
+  });
+}
+
+export { app };

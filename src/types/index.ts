@@ -1,10 +1,11 @@
 export interface User {
   id: string;
   name: string;
-  email: string;
+  email?: string;
   role: 'teacher' | 'student' | 'superadmin';
   phone?: string;
   tenant_id: string;
+  must_change_password?: boolean;
 }
 
 export interface Tenant {
@@ -32,7 +33,7 @@ export interface StudentProfile {
 export interface StudentListItem {
   id: string;
   name: string;
-  email: string;
+  email?: string;
   phone?: string;
   package_total_classes: number;
   package_price: number;
@@ -102,6 +103,8 @@ export interface MaterialItem {
   content_md?: string;
   class_title?: string;
   class_date?: string;
+  recipient_count?: number;
+  recipient_names?: string;
   created_at: string;
 }
 

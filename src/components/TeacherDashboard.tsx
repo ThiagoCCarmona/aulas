@@ -48,6 +48,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [selectedStudentToEdit, setSelectedStudentToEdit] = useState<StudentListItem | null>(null);
 
   const [showMaterialModal, setShowMaterialModal] = useState(false);
+  const [selectedStudentForMaterial, setSelectedStudentForMaterial] = useState<string | undefined>();
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Modal / Confirmação de Baixa
@@ -293,6 +294,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       )}
                       <button
                         onClick={() => {
+                          setSelectedStudentForMaterial(s.id);
+                          setShowMaterialModal(true);
+                        }}
+                        title="Enviar Material ou E-book para este Aluno"
+                        className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      >
+                        <BookOpen size={14} />
+                      </button>
+                      <button
+                        onClick={() => {
                           setSelectedStudentToEdit(s);
                           setShowStudentModal(true);
                         }}
@@ -467,9 +478,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       {showMaterialModal && (
         <MaterialModal
           students={students}
-          onClose={() => setShowMaterialModal(false)}
+          defaultStudentId={selectedStudentForMaterial}
+          onClose={() => {
+            setShowMaterialModal(false);
+            setSelectedStudentForMaterial(undefined);
+          }}
           onSuccess={() => {
-            showToast('Material cadastrado com sucesso!');
+            showToast('Material salvo com sucesso!');
             loadAll();
           }}
         />

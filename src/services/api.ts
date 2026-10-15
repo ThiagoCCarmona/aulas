@@ -102,6 +102,28 @@ export const api = {
     localStorage.removeItem('token');
   },
 
+  async changePassword(new_password: string, confirm_password?: string): Promise<{ message: string; user: User; token: string }> {
+    const res = await fetch(`${API_BASE}/auth/change-password`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ new_password, confirm_password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao alterar senha');
+    if (data.token) {
+      localStorage.setItem('token', data.token);
+    }
+    return data;
+  },
+
+  async getAllMaterials(): Promise<MaterialItem[]> {
+    const res = await fetch(`${API_BASE}/materials`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Erro ao listar materiais');
+    return res.json();
+  },
+
   // Students (Teacher)
   async getStudents(): Promise<StudentListItem[]> {
     const res = await fetch(`${API_BASE}/students`, {

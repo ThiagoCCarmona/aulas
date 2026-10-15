@@ -8,9 +8,10 @@ export interface AuthenticatedUser {
   id: string;
   tenant_id: string;
   name: string;
-  email: string;
+  email?: string;
   role: 'teacher' | 'student' | 'superadmin';
   phone?: string;
+  must_change_password?: boolean;
 }
 
 export interface AuthRequest extends TenantRequest {
@@ -54,7 +55,8 @@ export function signToken(user: AuthenticatedUser): string {
       name: user.name,
       email: user.email,
       role: user.role,
-      phone: user.phone
+      phone: user.phone,
+      must_change_password: user.must_change_password
     },
     JWT_SECRET,
     { expiresIn: '30d' }

@@ -5,6 +5,7 @@ import { Navbar } from './components/Navbar';
 import { StudentDashboard } from './components/StudentDashboard';
 import { TeacherDashboard } from './components/TeacherDashboard';
 import { SettingsModal } from './components/SettingsModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 import {
   GraduationCap,
   Lock,
@@ -14,7 +15,8 @@ import {
   ShieldCheck,
   Globe,
   Sun,
-  Moon
+  Moon,
+  User as UserIcon
 } from 'lucide-react';
 
 export function App() {
@@ -168,8 +170,8 @@ export function App() {
               <div>
                 <label className={`block text-xs font-semibold mb-1.5 flex items-center justify-between ${theme === 'light' ? 'text-slate-700' : 'text-slate-300'}`}>
                   <span className="flex items-center gap-1.5">
-                    <Mail size={13} className={theme === 'light' ? 'text-slate-500' : 'text-slate-400'} />
-                    E-mail ou WhatsApp
+                    <UserIcon size={13} className={theme === 'light' ? 'text-slate-500' : 'text-slate-400'} />
+                    WhatsApp, Telefone ou E-mail
                   </span>
                   <span className="text-[10px] text-slate-400 font-normal">Aceita telefone com DDD</span>
                 </label>
@@ -178,7 +180,7 @@ export function App() {
                   required
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="seu@email.com ou 11999998888"
+                  placeholder="Seu WhatsApp, telefone ou e-mail"
                   className={`w-full rounded-xl px-4 py-3 text-sm transition-colors focus:outline-none focus:border-indigo-500 ${
                     theme === 'light'
                       ? 'bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400'
@@ -287,6 +289,15 @@ export function App() {
           tenant={tenant}
           onClose={() => setShowSettingsModal(false)}
           onSuccess={(updated) => setTenant(updated)}
+        />
+      )}
+
+      {user?.must_change_password && (
+        <ChangePasswordModal
+          user={user}
+          onSuccess={(updatedUser) => {
+            setUser({ ...updatedUser, must_change_password: false });
+          }}
         />
       )}
     </div>
