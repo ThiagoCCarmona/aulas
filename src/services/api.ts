@@ -125,8 +125,11 @@ export const api = {
   },
 
   // Classes
-  async getStudentClasses(studentId: string): Promise<ClassSession[]> {
-    const res = await fetch(`${API_BASE}/classes/student/${studentId}`, {
+  async getStudentClasses(studentId: string, packageId?: string): Promise<ClassSession[]> {
+    const url = packageId
+      ? `${API_BASE}/classes/student/${studentId}?package_id=${encodeURIComponent(packageId)}`
+      : `${API_BASE}/classes/student/${studentId}`;
+    const res = await fetch(url, {
       headers: getHeaders()
     });
     if (!res.ok) throw new Error('Erro ao listar aulas');

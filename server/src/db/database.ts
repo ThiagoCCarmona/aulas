@@ -81,7 +81,7 @@ export function initDatabase() {
       title TEXT NOT NULL,
       summary TEXT,
       modality TEXT NOT NULL DEFAULT 'presencial' CHECK(modality IN ('presencial', 'online')),
-      status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('completed', 'scheduled', 'planned')),
+      status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('completed', 'scheduled', 'planned', 'rescheduled', 'no_show')),
       online_url TEXT,
       homework TEXT,
       teacher_notes TEXT,
@@ -97,7 +97,7 @@ export function initDatabase() {
       student_id TEXT,
       class_id TEXT,
       title TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('pdf', 'ebook', 'md', 'zip', 'link', 'audio', 'slides')),
+      type TEXT NOT NULL CHECK(type IN ('pdf', 'ebook', 'md', 'zip', 'link', 'audio', 'slides', 'image')),
       file_url TEXT,
       external_url TEXT,
       content_md TEXT,
@@ -114,10 +114,78 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_materials_student ON materials(student_id);
   `);
 
-  // Migração suave para instâncias existentes
+  // Migração suave para instâncias existentes: classes com novos status e materials com type 'image'
   try {
-    db.exec("ALTER TABLE classes ADD COLUMN status TEXT DEFAULT 'completed'");
-  } catch (_) {}
+    const classesTable = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='classes'").get() as any;
+    if (classesTable && classesTable.sql && !classesTable.sql.includes("'no_show'")) {
+      db.transaction(() => {
+        db.exec("PRAGMA foreign_keys = OFF");
+        db.exec(`
+          CREATE TABLE classes_new (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            package_id TEXT,
+            date TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT,
+            modality TEXT NOT NULL DEFAULT 'presencial' CHECK(modality IN ('presencial', 'online')),
+            status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('completed', 'scheduled', 'planned', 'rescheduled', 'no_show')),
+            online_url TEXT,
+            homework TEXT,
+            teacher_notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE SET NULL
+          );
+          INSERT INTO classes_new (id, tenant_id, student_id, package_id, date, title, summary, modality, status, online_url, homework, teacher_notes, created_at)
+          SELECT id, tenant_id, student_id, package_id, date, title, summary, modality, COALESCE(status, 'completed'), online_url, homework, teacher_notes, created_at FROM classes;
+          DROP TABLE classes;
+          ALTER TABLE classes_new RENAME TO classes;
+          CREATE INDEX IF NOT EXISTS idx_classes_package ON classes(package_id);
+          CREATE INDEX IF NOT EXISTS idx_classes_student ON classes(student_id);
+        `);
+        db.exec("PRAGMA foreign_keys = ON");
+      })();
+    }
+  } catch (err) {
+    console.error('Erro na migração de classes:', err);
+  }
+
+  try {
+    const matTable = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='materials'").get() as any;
+    if (matTable && matTable.sql && !matTable.sql.includes("'image'")) {
+      db.transaction(() => {
+        db.exec("PRAGMA foreign_keys = OFF");
+        db.exec(`
+          CREATE TABLE materials_new (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            student_id TEXT,
+            class_id TEXT,
+            title TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('pdf', 'ebook', 'md', 'zip', 'link', 'audio', 'slides', 'image')),
+            file_url TEXT,
+            external_url TEXT,
+            content_md TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+            FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE SET NULL
+          );
+          INSERT INTO materials_new (id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md, created_at)
+          SELECT id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md, created_at FROM materials;
+          DROP TABLE materials;
+          ALTER TABLE materials_new RENAME TO materials;
+          CREATE INDEX IF NOT EXISTS idx_materials_student ON materials(student_id);
+        `);
+        db.exec("PRAGMA foreign_keys = ON");
+      })();
+    }
+  } catch (err) {
+    console.error('Erro na migração de materials:', err);
+  }
 
   try {
     const hasC3 = db.prepare("SELECT id FROM classes WHERE id = 'class-carlos-03'").get();
@@ -376,5 +444,23 @@ npm run dev
         'presencial'
       );
     }
+  }
+
+  // Garantir que tenant secundário 'maria' existe para testes multi-tenant
+  const existingMaria = db.prepare('SELECT id FROM tenants WHERE slug = ?').get('maria');
+  if (!existingMaria) {
+    db.prepare(`
+      INSERT INTO tenants (id, slug, name, email, pix_key, pix_name, pix_city, phone_whatsapp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'tenant-maria-02',
+      'maria',
+      'Profª. Maria',
+      'maria@aulas.com',
+      '11988887777',
+      'Maria Souza',
+      'Rio de Janeiro',
+      '5511988887777'
+    );
   }
 }

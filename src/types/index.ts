@@ -83,7 +83,7 @@ export interface ClassSession {
   title: string;
   summary?: string;
   modality: 'presencial' | 'online';
-  status: 'completed' | 'scheduled' | 'planned';
+  status: 'completed' | 'scheduled' | 'planned' | 'rescheduled' | 'no_show';
   online_url?: string;
   homework?: string;
   teacher_notes?: string;
@@ -96,7 +96,7 @@ export interface MaterialItem {
   student_id?: string;
   class_id?: string;
   title: string;
-  type: 'pdf' | 'ebook' | 'md' | 'zip' | 'link' | 'audio' | 'slides';
+  type: 'pdf' | 'ebook' | 'md' | 'zip' | 'link' | 'audio' | 'slides' | 'image';
   file_url?: string;
   external_url?: string;
   content_md?: string;

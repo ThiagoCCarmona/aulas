@@ -3,8 +3,11 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import multer from 'multer';
 import bcrypt from 'bcryptjs';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { db, initDatabase } from './db/database.js';
 import { tenantMiddleware, TenantRequest } from './middleware/tenant.js';
 import { authMiddleware, teacherOnly, signToken, AuthRequest } from './middleware/auth.js';
@@ -24,25 +27,68 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
+// Extensões permitidas e explicitamente bloqueadas (Hardening de Uploads)
+const ALLOWED_EXTS = new Set(['.pdf', '.zip', '.png', '.jpg', '.jpeg']);
+const BLOCKED_EXTS = new Set(['.html', '.htm', '.svg', '.sh', '.js', '.mjs', '.cjs', '.exe', '.bat', '.cmd', '.ps1', '.vbs', '.php']);
+
 // Configuração do Multer para uploads locais seguros
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, UPLOADS_DIR);
   },
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname).toLowerCase();
+    const uniqueSuffix = crypto.randomUUID();
     cb(null, `${uniqueSuffix}${ext}`);
   }
 });
+
 const upload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (BLOCKED_EXTS.has(ext) || !ALLOWED_EXTS.has(ext)) {
+      const err: any = new Error('Extensão de arquivo não permitida. Apenas arquivos .pdf, .zip, .png, .jpg e .jpeg são aceitos.');
+      err.status = 400;
+      return cb(err, false);
+    }
+    cb(null, true);
+  }
 });
+
+// Rate limiting: 5 tentativas de login por minuto por IP
+export const loginLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de login. Tente novamente em 1 minuto.' }
+});
+
+// Helmet com suporte a iframes de PDFs do mesmo domínio e imagens seguras
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "frame-src": ["'self'", "https://meet.google.com"],
+      "frame-ancestors": ["'self'"],
+      "img-src": ["'self'", "data:", "blob:"]
+    }
+  },
+  crossOriginEmbedderPolicy: false
+}));
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Servir uploads com headers restritivos de segurança
+app.use('/uploads', express.static(UPLOADS_DIR, {
+  setHeaders: (res) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+  }
+}));
 
 // Endpoint de verificação de integridade (Healthcheck)
 app.get('/api/health', (_req, res) => {
@@ -90,7 +136,7 @@ app.put('/api/tenant/settings', authMiddleware, teacherOnly, (req: AuthRequest, 
 // ==========================================
 // 2. AUTENTICAÇÃO
 // ==========================================
-app.post('/api/auth/login', (req: TenantRequest, res) => {
+app.post('/api/auth/login', loginLimiter, (req: TenantRequest, res) => {
   const { email, identifier, password } = req.body;
   const loginIdentifier = (identifier || email || '').trim();
   if (!loginIdentifier || !password) {
@@ -153,8 +199,8 @@ app.get('/api/students', authMiddleware, teacherOnly, (req: AuthRequest, res) =>
     SELECT u.id, u.name, u.email, u.phone, u.created_at,
            sp.package_total_classes, sp.package_price, sp.weekly_schedules, sp.notes, sp.active,
            pkg.id as current_package_id, pkg.status as package_status, pkg.price as package_price_actual,
-           (SELECT COUNT(*) FROM classes c WHERE c.package_id = pkg.id AND c.status = 'completed') as completed_classes_in_package,
-           (SELECT COUNT(*) FROM classes c WHERE c.package_id = pkg.id AND c.status IN ('scheduled', 'planned')) as future_classes_in_package
+           (SELECT COUNT(*) FROM classes c WHERE c.package_id = pkg.id AND c.status IN ('completed', 'no_show')) as completed_classes_in_package,
+           (SELECT COUNT(*) FROM classes c WHERE c.package_id = pkg.id AND c.status IN ('scheduled', 'planned', 'rescheduled')) as future_classes_in_package
     FROM users u
     JOIN student_profiles sp ON sp.user_id = u.id
     LEFT JOIN packages pkg ON pkg.student_id = u.id AND pkg.status IN ('in_progress', 'pending_payment')
@@ -176,8 +222,8 @@ app.post('/api/students', authMiddleware, teacherOnly, (req: AuthRequest, res) =
     return res.status(400).json({ error: 'Já existe um aluno com este e-mail' });
   }
 
-  const userId = `user-student-${Date.now()}`;
-  const profileId = `profile-${Date.now()}`;
+  const userId = `user-student-${crypto.randomUUID()}`;
+  const profileId = `profile-${crypto.randomUUID()}`;
   const passwordHash = bcrypt.hashSync(password, 10);
   const totalClasses = Number(package_total_classes) || 4;
   const price = Number(package_price) || 350.00;
@@ -194,7 +240,7 @@ app.post('/api/students', authMiddleware, teacherOnly, (req: AuthRequest, res) =
     `).run(profileId, userId, req.tenant!.id, totalClasses, price, weekly_schedules || null, notes || null);
 
     // Cria pacote inicial em andamento
-    const packageId = `pkg-${Date.now()}`;
+    const packageId = `pkg-${crypto.randomUUID()}`;
     db.prepare(`
       INSERT INTO packages (id, tenant_id, student_id, total_classes, price, status)
       VALUES (?, ?, ?, ?, ?, 'in_progress')
@@ -216,7 +262,7 @@ app.put('/api/students/:id', authMiddleware, teacherOnly, (req: AuthRequest, res
 
     if (password) {
       const hash = bcrypt.hashSync(password, 10);
-      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, studentId);
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ? AND tenant_id = ?').run(hash, studentId, req.tenant!.id);
     }
 
     db.prepare(`
@@ -238,21 +284,37 @@ app.put('/api/students/:id', authMiddleware, teacherOnly, (req: AuthRequest, res
 // ==========================================
 app.get('/api/classes/student/:studentId', authMiddleware, (req: AuthRequest, res) => {
   const studentId = req.params.studentId;
+  const packageId = req.query.package_id as string | undefined;
 
   // Se for aluno, só pode ver suas próprias aulas
   if (req.user!.role === 'student' && req.user!.id !== studentId) {
     return res.status(403).json({ error: 'Acesso não autorizado' });
   }
 
-  const classes = db.prepare(`
-    SELECT c.*,
+  // Privacidade de dados: excluir teacher_notes da query se for aluno
+  const isStudent = req.user!.role === 'student';
+  const selectColumns = isStudent
+    ? `c.id, c.tenant_id, c.student_id, c.package_id, c.date, c.title, c.summary, c.modality, c.status, c.online_url, c.homework, c.created_at`
+    : `c.*`;
+
+  let query = `
+    SELECT ${selectColumns},
            (SELECT json_group_array(json_object(
              'id', m.id, 'title', m.title, 'type', m.type, 'file_url', m.file_url, 'external_url', m.external_url, 'content_md', m.content_md
            )) FROM materials m WHERE m.class_id = c.id) as materials_json
     FROM classes c
     WHERE c.student_id = ? AND c.tenant_id = ?
-    ORDER BY c.date ASC
-  `).all(studentId, req.tenant!.id) as any[];
+  `;
+  const params: any[] = [studentId, req.tenant!.id];
+
+  if (packageId) {
+    query += ` AND c.package_id = ?`;
+    params.push(packageId);
+  }
+
+  query += ` ORDER BY c.date ASC`;
+
+  const classes = db.prepare(query).all(...params) as any[];
 
   const formatted = classes.map(c => ({
     ...c,
@@ -297,7 +359,7 @@ app.post('/api/classes', authMiddleware, teacherOnly, (req: AuthRequest, res) =>
     const profile = db.prepare('SELECT * FROM student_profiles WHERE user_id = ?').get(student_id) as any;
     const totalClasses = profile ? profile.package_total_classes : 4;
     const price = profile ? profile.package_price : 350.00;
-    const newPkgId = `pkg-${Date.now()}`;
+    const newPkgId = `pkg-${crypto.randomUUID()}`;
 
     db.prepare(`
       INSERT INTO packages (id, tenant_id, student_id, total_classes, price, status)
@@ -307,7 +369,7 @@ app.post('/api/classes', authMiddleware, teacherOnly, (req: AuthRequest, res) =>
     pkg = { id: newPkgId, total_classes: totalClasses };
   }
 
-  const classId = `class-${Date.now()}`;
+  const classId = `class-${crypto.randomUUID()}`;
   const classDate = date || new Date().toISOString().replace('T', ' ').substring(0, 16);
 
   db.transaction(() => {
@@ -335,24 +397,27 @@ app.post('/api/classes', authMiddleware, teacherOnly, (req: AuthRequest, res) =>
         INSERT INTO materials (id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        `mat-${Date.now()}`,
+        `mat-${crypto.randomUUID()}`,
         req.tenant!.id,
         student_id,
         classId,
         material_title,
         material_type,
-        material_type === 'pdf' || material_type === 'zip' || material_type === 'file' ? material_url : null,
+        material_type === 'pdf' || material_type === 'zip' || material_type === 'file' || material_type === 'image' ? material_url : null,
         material_type === 'link' || material_type === 'ebook' ? material_url : null,
         material_type === 'md' ? material_content_md : null
       );
     }
   })();
 
-  // Retorna estatística atualizada do pacote (apenas concluídas contam para fechamento)
-  const classCount = (db.prepare("SELECT COUNT(*) as count FROM classes WHERE package_id = ? AND status = 'completed'").get(pkg.id) as any).count;
+  // Apenas 'completed' ou 'no_show' consom o saldo de aulas do pacote
+  const classCount = (db.prepare(`
+    SELECT COUNT(*) as count FROM classes
+    WHERE package_id = ? AND status IN ('completed', 'no_show')
+  `).get(pkg.id) as any).count;
 
   res.status(201).json({
-    message: status === 'completed' ? 'Aula registrada com sucesso!' : 'Aula agendada no cronograma!',
+    message: (status === 'completed' || status === 'no_show') ? 'Aula registrada com sucesso!' : 'Aula agendada no cronograma!',
     classId,
     packageId: pkg.id,
     classesCompleted: classCount,
@@ -362,19 +427,18 @@ app.post('/api/classes', authMiddleware, teacherOnly, (req: AuthRequest, res) =>
 
 // Marcar aula agendada/planejada como concluída
 app.put('/api/classes/:id/complete', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
-  const { summary, homework, online_url } = req.body;
-  const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
+  const { summary, homework, online_url, status = 'completed' } = req.body;
 
   db.prepare(`
     UPDATE classes
-    SET status = 'completed',
+    SET status = ?,
         summary = COALESCE(?, summary),
         homework = COALESCE(?, homework),
         online_url = COALESCE(?, online_url)
     WHERE id = ? AND tenant_id = ?
-  `).run(summary || null, homework || null, online_url || null, req.params.id, req.tenant!.id);
+  `).run(status, summary || null, homework || null, online_url || null, req.params.id, req.tenant!.id);
 
-  res.json({ message: 'Aula marcada como concluída!' });
+  res.json({ message: 'Aula atualizada com sucesso!' });
 });
 
 app.delete('/api/classes/:id', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
@@ -392,7 +456,7 @@ app.get('/api/packages/current/:studentId', authMiddleware, async (req: AuthRequ
     return res.status(403).json({ error: 'Acesso não autorizado' });
   }
 
-  // Busca pacote pendente de pagamento (se houver, é prioridade na UI para cobrança) ou em andamento
+  // Busca pacote pendente de pagamento ou em andamento
   let pkg = db.prepare(`
     SELECT * FROM packages
     WHERE student_id = ? AND tenant_id = ? AND status = 'pending_payment'
@@ -417,8 +481,16 @@ app.get('/api/packages/current/:studentId', authMiddleware, async (req: AuthRequ
   let scheduledClasses = 0;
 
   if (current) {
-    completedClasses = (db.prepare("SELECT COUNT(*) as count FROM classes WHERE package_id = ? AND status = 'completed'").get(current.id) as any).count;
-    scheduledClasses = (db.prepare("SELECT COUNT(*) as count FROM classes WHERE package_id = ? AND status IN ('scheduled', 'planned')").get(current.id) as any).count;
+    // Apenas aulas com status 'completed' ou 'no_show' consom o saldo do pacote
+    completedClasses = (db.prepare(`
+      SELECT COUNT(*) as count FROM classes
+      WHERE package_id = ? AND status IN ('completed', 'no_show')
+    `).get(current.id) as any).count;
+
+    scheduledClasses = (db.prepare(`
+      SELECT COUNT(*) as count FROM classes
+      WHERE package_id = ? AND status IN ('scheduled', 'planned', 'rescheduled')
+    `).get(current.id) as any).count;
   }
 
   res.json({
@@ -473,7 +545,7 @@ app.post('/api/packages/close/:studentId', authMiddleware, teacherOnly, async (r
     cidadeRecebedor: tenant.pix_city || 'SAO PAULO',
     valor: currentPkg.price,
     mensagem: `Aulas ${tenant.name}`.substring(0, 20),
-    txid: `PKG${Date.now().toString().slice(-10)}`
+    txid: `PKG${crypto.randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase()}`
   });
 
   const pixQRCode = await gerarQRCodeDataUrl(pixPayload);
@@ -482,7 +554,7 @@ app.post('/api/packages/close/:studentId', authMiddleware, teacherOnly, async (r
   const profile = db.prepare('SELECT * FROM student_profiles WHERE user_id = ?').get(studentId) as any;
   const nextTotal = profile ? profile.package_total_classes : 4;
   const nextPrice = profile ? profile.package_price : currentPkg.price;
-  const newPkgId = `pkg-${Date.now()}`;
+  const newPkgId = `pkg-${crypto.randomUUID()}`;
 
   db.transaction(() => {
     // 1. Marca pacote atual como pendente de pagamento com Pix anexado
@@ -511,11 +583,22 @@ app.post('/api/packages/close/:studentId', authMiddleware, teacherOnly, async (r
   });
 });
 
-// Ação do Professor: "Dar Baixa Manual" (Pix ou Dinheiro)
+// Ação do Professor: "Dar Baixa Manual" (Pix ou Dinheiro) com Eliminação de IDOR
 app.post('/api/packages/:packageId/pay', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
   const { payment_method = 'pix' } = req.body;
   const packageId = req.params.packageId;
   const now = new Date().toISOString();
+
+  // Eliminação de IDOR: garantir que o pacote pertença a um aluno do tenant autenticado
+  const pkg = db.prepare(`
+    SELECT p.* FROM packages p
+    JOIN users u ON u.id = p.student_id
+    WHERE p.id = ? AND p.tenant_id = ? AND u.tenant_id = ?
+  `).get(packageId, req.tenant!.id, req.tenant!.id) as any;
+
+  if (!pkg) {
+    return res.status(404).json({ error: 'Pacote não encontrado para este aluno ou tenant' });
+  }
 
   db.prepare(`
     UPDATE packages
@@ -575,7 +658,7 @@ app.post('/api/materials', authMiddleware, teacherOnly, (req: AuthRequest, res) 
     return res.status(400).json({ error: 'Título e tipo de material são obrigatórios' });
   }
 
-  const id = `mat-${Date.now()}`;
+  const id = `mat-${crypto.randomUUID()}`;
   db.prepare(`
     INSERT INTO materials (id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -589,17 +672,22 @@ app.delete('/api/materials/:id', authMiddleware, teacherOnly, (req: AuthRequest,
   res.json({ message: 'Material removido' });
 });
 
-// Upload de Arquivos
-app.post('/api/upload', authMiddleware, teacherOnly, upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'Nenhum arquivo enviado' });
-  }
-  const fileUrl = `/uploads/${req.file.filename}`;
-  res.json({
-    url: fileUrl,
-    filename: req.file.filename,
-    originalName: req.file.originalname,
-    size: req.file.size
+// Upload de Arquivos Seguro
+app.post('/api/upload', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
+  upload.single('file')(req, res, (err: any) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'Erro no upload do arquivo' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    }
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({
+      url: fileUrl,
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      size: req.file.size
+    });
   });
 });
 
@@ -613,8 +701,9 @@ app.get('/api/stats/teacher', authMiddleware, teacherOnly, (req: AuthRequest, re
     SELECT COUNT(*) as count FROM users WHERE tenant_id = ? AND role = 'student'
   `).get(tenantId) as any).count;
 
+  // Aulas dadas: apenas 'completed' ou 'no_show'
   const totalClassesGiven = (db.prepare(`
-    SELECT COUNT(*) as count FROM classes WHERE tenant_id = ? AND status = 'completed'
+    SELECT COUNT(*) as count FROM classes WHERE tenant_id = ? AND status IN ('completed', 'no_show')
   `).get(tenantId) as any).count;
 
   const pendingPackages = db.prepare(`

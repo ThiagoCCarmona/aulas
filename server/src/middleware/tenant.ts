@@ -16,12 +16,14 @@ export interface TenantRequest extends Request {
 
 export function tenantMiddleware(req: TenantRequest, res: Response, next: NextFunction) {
   // 1. Verificar cabeçalho explícito (útil em dev ou SPA)
-  let slug = req.headers['x-tenant-slug'] as string || req.headers['x-tenant'] as string;
+  let explicitSlug = req.headers['x-tenant-slug'] as string || req.headers['x-tenant'] as string;
 
   // 2. Verificar query param
-  if (!slug && typeof req.query.tenant === 'string') {
-    slug = req.query.tenant;
+  if (!explicitSlug && typeof req.query.tenant === 'string') {
+    explicitSlug = req.query.tenant;
   }
+
+  let slug = explicitSlug;
 
   // 3. Verificar subdomínio a partir do host (ex: thiago.plataforma.com -> thiago)
   if (!slug) {
@@ -41,11 +43,13 @@ export function tenantMiddleware(req: TenantRequest, res: Response, next: NextFu
   const tenant = db.prepare('SELECT * FROM tenants WHERE slug = ?').get(slug) as any;
 
   if (!tenant) {
-    // Tenta obter o primeiro tenant do sistema
-    const firstTenant = db.prepare('SELECT * FROM tenants LIMIT 1').get() as any;
-    if (firstTenant) {
-      req.tenant = firstTenant;
-      return next();
+    if (!explicitSlug) {
+      // Tenta obter o primeiro tenant do sistema apenas se nenhum slug explícito foi solicitado
+      const firstTenant = db.prepare('SELECT * FROM tenants LIMIT 1').get() as any;
+      if (firstTenant) {
+        req.tenant = firstTenant;
+        return next();
+      }
     }
     return res.status(404).json({ error: 'Tenant/Professor não encontrado' });
   }

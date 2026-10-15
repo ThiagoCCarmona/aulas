@@ -27,6 +27,12 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as AuthenticatedUser;
     req.user = decoded;
+
+    // Isolamento Estrito de Tenant
+    if (req.tenant && req.user.role !== 'superadmin' && req.user.tenant_id !== req.tenant.id) {
+      return res.status(403).json({ error: 'Acesso negado: token não pertence ao tenant requisitado' });
+    }
+
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Token inválido ou expirado' });

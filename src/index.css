@@ -1,187 +1,85 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+:root {
+  --bg-app: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-card-subtle: #f1f5f9;
+  --border-card: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+}
+
+:root.dark, body.dark {
+  --bg-app: #0b0f19;
+  --bg-card: #0f172a;
+  --bg-card-subtle: #020617;
+  --border-card: #1e293b;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+}
+
 @layer base {
   body {
-    background-color: #0b0f19;
-    color: #f1f5f9;
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
     min-height: 100vh;
     margin: 0;
     overflow-x: hidden;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  body.dark {
     background-image: 
       radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.12) 0%, transparent 60%),
       radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.06) 0%, transparent 50%),
       linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
       linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
     background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
-    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
   body.light {
-    background-color: #f8fafc;
-    color: #0f172a;
     background-image: 
-      radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.06) 0%, transparent 60%),
-      radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.04) 0%, transparent 50%),
-      linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+      radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.05) 0%, transparent 60%),
+      radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.03) 0%, transparent 50%),
+      linear-gradient(rgba(0, 0, 0, 0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.02) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
   }
 }
 
-/* Custom sleek scrollbar */
+/* Sleek Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #090d16;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #cbd5e1;
   border-radius: 4px;
 }
+.dark ::-webkit-scrollbar-thumb {
+  background: #1e293b;
+}
 ::-webkit-scrollbar-thumb:hover {
-  background: #3b82f6;
+  background: #94a3b8;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #334155;
 }
 
-body.light ::-webkit-scrollbar-track {
-  background: #f1f5f9;
-}
-body.light ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-}
-
-/* Code styling */
+/* Typography code styling */
 pre, code {
-  font-family: 'JetBrains Mono', monospace;
-}
-
-/* ==========================================================================
-   Light Mode Overrides - Alta Fidelidade, Contraste e Elegância
-   ========================================================================== */
-
-/* Navbar e Header */
-body.light header {
-  background-color: rgba(255, 255, 255, 0.9) !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-}
-
-/* Cards Principais (bg-slate-900) viram Cards Brancos com Sombra Suave */
-body.light [class*="bg-slate-900"]:not(button):not(span):not(header) {
-  background-color: #ffffff !important;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
-}
-
-/* Botões com bg-slate-900 no modo claro viram fundo branco/cinza suave */
-body.light button[class*="bg-slate-900"],
-body.light div[class*="bg-slate-900"] {
-  background-color: #ffffff !important;
-}
-
-/* Elementos Secundários / Insets (bg-slate-950) dentro da página */
-body.light [class*="bg-slate-950"]:not([class*="fixed"]) {
-  background-color: #f8fafc !important;
-}
-
-/* Pistas de Progresso (barras de progresso de aulas) */
-body.light [class*="h-3"][class*="bg-slate-950"],
-body.light [class*="h-2"][class*="bg-slate-950"] {
-  background-color: #e2e8f0 !important;
-}
-
-/* Backdrops de Modais Fixos (devem manter transparência para dar foco ao modal) */
-body.light [class*="fixed"][class*="bg-slate-950"] {
-  background-color: rgba(15, 23, 42, 0.65) !important;
-}
-
-/* Diálogos internos de modais */
-body.light [class*="fixed"] > div,
-body.light [class*="fixed"] [class*="max-w-"] {
-  background-color: #ffffff !important;
-}
-
-/* Efeito Hover em botões e linhas */
-body.light [class*="hover:bg-slate-800"]:hover,
-body.light [class*="hover:bg-slate-900"]:hover {
-  background-color: #f1f5f9 !important;
-}
-
-/* Bordas Gerais */
-body.light [class*="border-slate-800"],
-body.light [class*="border-slate-700"],
-body.light [class*="border-slate-900"] {
-  border-color: #e2e8f0 !important;
-}
-
-/* Cores de Texto e Contraste */
-body.light h1,
-body.light h2,
-body.light h3,
-body.light h4,
-body.light h5,
-body.light h6 {
-  color: #0f172a !important;
-}
-
-body.light .text-slate-100,
-body.light .text-slate-200 {
-  color: #1e293b !important;
-}
-
-body.light .text-slate-300 {
-  color: #334155 !important;
-}
-
-body.light .text-slate-400 {
-  color: #64748b !important;
-}
-
-body.light .text-slate-500 {
-  color: #64748b !important;
-}
-
-/* Preservação de Texto Branco em Botões e Destaques Primários */
-body.light [class*="bg-indigo-600"],
-body.light [class*="bg-emerald-600"],
-body.light [class*="from-indigo-600"],
-body.light [class*="from-emerald-500"],
-body.light [class*="bg-gradient"] {
-  color: #ffffff !important;
-}
-
-body.light [class*="bg-indigo-600"] *,
-body.light [class*="bg-emerald-600"] *,
-body.light [class*="from-indigo-600"] *,
-body.light [class*="bg-gradient"] * {
-  color: #ffffff !important;
-}
-
-/* Botões Primários não devem ter o texto alterado por .text-white override */
-body.light button.bg-indigo-600 span,
-body.light button.bg-emerald-600 span,
-body.light a.bg-emerald-600 span {
-  color: #ffffff !important;
-}
-
-/* Inputs, Selects e Textareas */
-body.light input,
-body.light select,
-body.light textarea {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
-  border-color: #cbd5e1 !important;
-}
-
-body.light input:focus,
-body.light select:focus,
-body.light textarea:focus {
-  border-color: #6366f1 !important;
-  background-color: #ffffff !important;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15) !important;
-}
-
-body.light input::placeholder,
-body.light textarea::placeholder {
-  color: #94a3b8 !important;
+  font-family: var(--font-mono);
 }

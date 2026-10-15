@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { QrCode, Copy, Check, MessageCircle, Banknote, ChevronDown, ChevronUp, Sparkles, Receipt } from 'lucide-react';
+import { QrCode, Copy, Check, MessageCircle, Banknote, ChevronDown, ChevronUp, Receipt } from 'lucide-react';
 import { PackageInfo, Tenant } from '../types';
 
 interface PixPaymentCardProps {
@@ -40,32 +40,32 @@ export const PixPaymentCard: React.FC<PixPaymentCardProps> = ({
   });
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 md:p-6 backdrop-blur-sm transition-all shadow-sm">
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 md:p-6 backdrop-blur-sm transition-all shadow-sm">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-300 shrink-0">
-            <Receipt size={18} className="text-indigo-400" />
+          <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 flex items-center justify-center text-slate-700 dark:text-slate-300 shrink-0">
+            <Receipt size={18} className="text-indigo-600 dark:text-indigo-400" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-300">
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 Acerto do Ciclo Pedagógico ({packageInfo.total_classes} Aulas)
               </span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                 Aulas Concluídas
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Pacote finalizado. Valor: <strong className="text-white">{formattedPrice}</strong>. Pagamento pós-pago via Pix ou dinheiro.
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+              Pacote finalizado. Valor: <strong className="text-slate-900 dark:text-white font-bold">{formattedPrice}</strong>. Pagamento pós-pago via Pix ou dinheiro.
             </p>
           </div>
         </div>
 
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-200 hover:text-white transition-all cursor-pointer whitespace-nowrap self-end sm:self-auto"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white transition-all cursor-pointer whitespace-nowrap self-end sm:self-auto"
         >
-          <QrCode size={14} className="text-emerald-400" />
+          <QrCode size={14} className="text-emerald-500 dark:text-emerald-400" />
           <span>{isOpen ? 'Ocultar Opções Pix' : 'Opções de Pagamento Pix'}</span>
           {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
@@ -73,12 +73,12 @@ export const PixPaymentCard: React.FC<PixPaymentCardProps> = ({
 
       {/* Conteúdo Expansível (Discreto e Elegante) */}
       {isOpen && (
-        <div className="mt-5 pt-5 border-t border-slate-800/80 animate-fadeIn">
+        <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-800/80 animate-fadeIn">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
             {/* QR Code Container */}
-            <div className="md:col-span-4 flex flex-col items-center justify-center p-3 bg-slate-950 rounded-xl border border-slate-800">
+            <div className="md:col-span-4 flex flex-col items-center justify-center p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800">
               {packageInfo.pix_qrcode ? (
-                <div className="bg-white p-2.5 rounded-lg shadow-md">
+                <div className="bg-white p-2.5 rounded-lg shadow-md border border-slate-100">
                   <img
                     src={packageInfo.pix_qrcode}
                     alt="QR Code Pix"
@@ -86,12 +86,12 @@ export const PixPaymentCard: React.FC<PixPaymentCardProps> = ({
                   />
                 </div>
               ) : (
-                <div className="w-36 h-36 flex flex-col items-center justify-center text-slate-500">
+                <div className="w-36 h-36 flex flex-col items-center justify-center text-slate-400">
                   <QrCode size={32} className="mb-1 opacity-40" />
                   <span className="text-[10px]">QR Code indisponível</span>
                 </div>
               )}
-              <span className="text-[11px] text-slate-400 mt-2 text-center">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 text-center">
                 Aponte a câmera no app do seu banco
               </span>
             </div>
@@ -99,7 +99,7 @@ export const PixPaymentCard: React.FC<PixPaymentCardProps> = ({
             {/* Informações e Ações */}
             <div className="md:col-span-8 space-y-4">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
                   Pix Copia e Cola
                 </label>
                 <div className="flex items-center gap-2">
@@ -107,7 +107,7 @@ export const PixPaymentCard: React.FC<PixPaymentCardProps> = ({
                     type="text"
                     readOnly
                     value={packageInfo.pix_payload || ''}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-300 font-mono focus:outline-none select-all"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 dark:text-slate-300 font-mono focus:outline-none select-all"
                   />
                   <button
                     onClick={handleCopy}
@@ -143,8 +143,8 @@ export const PixPaymentCard: React.FC<PixPaymentCardProps> = ({
                   <span>Enviar Comprovante via WhatsApp</span>
                 </a>
 
-                <div className="flex items-center gap-1.5 text-[11px] text-slate-400 px-3 py-2 bg-slate-950 rounded-xl border border-slate-800 w-full sm:w-auto">
-                  <Banknote size={14} className="text-amber-400 shrink-0" />
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 px-3 py-2 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 w-full sm:w-auto">
+                  <Banknote size={14} className="text-amber-500 dark:text-amber-400 shrink-0" />
                   <span>Dinheiro pode ser entregue na aula presencial.</span>
                 </div>
               </div>

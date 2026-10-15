@@ -18,17 +18,22 @@ import {
   Clock,
   Download,
   ExternalLink,
-  FileCode,
   FileText,
   MapPin,
-  Sparkles,
   Video,
   X,
   History,
   Check,
   CalendarClock,
   Compass,
-  Eye
+  Eye,
+  AlertCircle,
+  Copy,
+  Image as ImageIcon,
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
+  XCircle
 } from 'lucide-react';
 
 interface StudentDashboardProps {
@@ -41,24 +46,38 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
   const [classes, setClasses] = useState<ClassSession[]>([]);
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [packageHistory, setPackageHistory] = useState<PackageInfo[]>([]);
-  
+
   const [activeTab, setActiveTab] = useState<'cronograma' | 'materiais' | 'historico'>('cronograma');
-  
-  // Modais de Leitura
+
+  // Modais de Leitura e Visualização
   const [viewingPdf, setViewingPdf] = useState<{ title: string; url: string } | null>(null);
+  const [viewingImage, setViewingImage] = useState<{ title: string; url: string } | null>(null);
+  const [copiedImageLink, setCopiedImageLink] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<MaterialItem | null>(null);
+
+  // Detalhamento de ciclos passados (Histórico)
+  const [expandedPackageId, setExpandedPackageId] = useState<string | null>(null);
+  const [cycleClassesMap, setCycleClassesMap] = useState<Record<string, ClassSession[]>>({});
+  const [loadingCycleId, setLoadingCycleId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [pkgRes, classesRes, materialsRes, histRes] = await Promise.all([
-        api.getCurrentPackage(user.id),
-        api.getStudentClasses(user.id),
+      // 1. Busca pacote atual para saber o ID do pacote em andamento
+      const pkgRes = await api.getCurrentPackage(user.id);
+      setPackageData(pkgRes);
+
+      const targetPackageId = pkgRes.in_progress?.id || pkgRes.pending_payment?.id;
+
+      // 2. Busca aulas do pacote ativo atual (em vez de fatiar o histórico geral)
+      const [classesRes, materialsRes, histRes] = await Promise.all([
+        api.getStudentClasses(user.id, targetPackageId),
         api.getMaterials(user.id),
         api.getPackageHistory(user.id)
       ]);
-      setPackageData(pkgRes);
+
       setClasses(classesRes);
       setMaterials(materialsRes);
       setPackageHistory(histRes);
@@ -73,23 +92,63 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
     loadData();
   }, [user.id]);
 
+  // Carregar aulas de um ciclo histórico ao expandir
+  const handleToggleCycleDetails = async (pkgId: string) => {
+    if (expandedPackageId === pkgId) {
+      setExpandedPackageId(null);
+      return;
+    }
+
+    setExpandedPackageId(pkgId);
+
+    if (!cycleClassesMap[pkgId]) {
+      try {
+        setLoadingCycleId(pkgId);
+        const cycleClasses = await api.getStudentClasses(user.id, pkgId);
+        setCycleClassesMap(prev => ({ ...prev, [pkgId]: cycleClasses }));
+      } catch (err) {
+        console.error('Erro ao buscar aulas do ciclo:', err);
+      } finally {
+        setLoadingCycleId(null);
+      }
+    }
+  };
+
   const handleOpenMaterial = (m: MaterialItem) => {
-    // Se for PDF ou E-book com arquivo no servidor, abre o leitor inline!
+    // 1. Se for imagem, abre visualizador de imagem
+    if (m.type === 'image' || (m.file_url && /\.(png|jpe?g|webp)$/i.test(m.file_url))) {
+      setViewingImage({
+        title: m.title,
+        url: m.file_url || m.external_url!
+      });
+      return;
+    }
+
+    // 2. Se for PDF ou E-book com arquivo no servidor, abre o leitor inline
     if ((m.type === 'pdf' || m.type === 'ebook') && (m.file_url || m.external_url?.endsWith('.pdf'))) {
       setViewingPdf({
         title: m.title,
         url: m.file_url || m.external_url!
       });
-    } else {
-      setSelectedMaterial(m);
+      return;
     }
+
+    // 3. Demais materiais (Markdown, zip, links externos)
+    setSelectedMaterial(m);
+  };
+
+  const handleCopyImageUrl = (url: string) => {
+    const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    navigator.clipboard.writeText(fullUrl);
+    setCopiedImageLink(true);
+    setTimeout(() => setCopiedImageLink(false), 2000);
   };
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
         <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mb-4" />
-        <span className="text-sm text-slate-400">Carregando seu plano de estudos...</span>
+        <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">Carregando seu plano de estudos...</span>
       </div>
     );
   }
@@ -99,11 +158,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
   const student = packageData?.student;
   const totalPackageClasses = inProgress?.total_classes || student?.package_total_classes || 4;
 
-  // Montagem da grade completa das aulas do pacote (reais + slots previstos)
+  // Montagem da grade completa das aulas do pacote (aulas registradas do pacote + slots previstos)
   const packageClassesList: {
     index: number;
     classData?: ClassSession;
-    status: 'completed' | 'scheduled' | 'planned';
+    status: 'completed' | 'scheduled' | 'planned' | 'rescheduled' | 'no_show';
     title: string;
   }[] = [];
 
@@ -128,52 +187,52 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* 1. Header do Aluno */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-slate-900/60 border border-slate-800/80 p-6 rounded-2xl backdrop-blur-sm">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 p-6 rounded-2xl shadow-sm backdrop-blur-sm">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
               Olá, {user.name.split(' ')[0]}! 👋
             </h1>
           </div>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             Seu portal de estudos e acompanhamento de aulas com {tenant?.name || 'seu professor'}.
           </p>
         </div>
 
         {student?.weekly_schedules && (
-          <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300">
-            <Calendar className="text-indigo-400 w-4 h-4 shrink-0" />
+          <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
+            <Calendar className="text-indigo-600 dark:text-indigo-400 w-4 h-4 shrink-0" />
             <div>
               <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-semibold">
                 Horário Semanal
               </span>
-              <span className="font-semibold text-slate-200">{student.weekly_schedules}</span>
+              <span className="font-semibold text-slate-900 dark:text-slate-200">{student.weekly_schedules}</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* 2. Barra de Progresso do Pacote Atual (Foco Pedagógico) */}
+      {/* 2. Barra de Progresso do Pacote Atual */}
       {inProgress && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-sm backdrop-blur-md space-y-3">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 p-6 shadow-sm backdrop-blur-md space-y-3">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Compass size={14} />
                 Minha Trilha de Aulas
               </span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20">
                 Pacote de {inProgress.total_classes} Aulas
               </span>
             </div>
 
-            <span className="text-xs text-slate-400 font-medium">
-              {inProgress.completed_classes} de {inProgress.total_classes} encontros realizados ({inProgress.percentage}%)
+            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+              {inProgress.completed_classes} de {inProgress.total_classes} encontros contabilizados ({inProgress.percentage}%)
             </span>
           </div>
 
           {/* Barra de Progresso Suave */}
-          <div className="relative w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
+          <div className="relative w-full h-3 bg-slate-100 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-200 dark:border-slate-800 p-0.5">
             <div
               className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-400 transition-all duration-700 ease-out"
               style={{ width: `${inProgress.percentage || 0}%` }}
@@ -187,7 +246,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
         </div>
       )}
 
-      {/* 3. Card de Acerto Pedagógico (Pix Discreto & Respeitoso - Só quando concluído) */}
+      {/* 3. Card de Acerto Pedagógico (Pix) */}
       {pendingPayment && (
         <PixPaymentCard
           packageInfo={pendingPayment}
@@ -198,13 +257,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
 
       {/* 4. Abas de Conteúdo Pedagógico */}
       <div className="space-y-6">
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
           <button
             onClick={() => setActiveTab('cronograma')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
               activeTab === 'cronograma'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
             }`}
           >
             <CalendarClock size={16} />
@@ -216,7 +275,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
               activeTab === 'materiais'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
             }`}
           >
             <BookOpen size={16} />
@@ -228,7 +287,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
               activeTab === 'historico'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900'
             }`}
           >
             <History size={16} />
@@ -236,10 +295,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
           </button>
         </div>
 
-        {/* Tab 1: Cronograma do Pacote (Aulas Concluídas + Futuras) */}
+        {/* Tab 1: Cronograma do Pacote */}
         {activeTab === 'cronograma' && (
           <div className="space-y-4">
-            <div className="text-xs text-slate-400 flex items-center justify-between pb-1">
+            <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between pb-1">
               <span>Visualize o andamento completo das {totalPackageClasses} aulas contratadas no seu ciclo atual:</span>
             </div>
 
@@ -249,53 +308,75 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
                 const isCompleted = slot.status === 'completed';
                 const isScheduled = slot.status === 'scheduled';
                 const isPlanned = slot.status === 'planned';
+                const isRescheduled = slot.status === 'rescheduled';
+                const isNoShow = slot.status === 'no_show';
 
                 return (
                   <div
                     key={`slot-${slot.index}`}
                     className={`p-5 rounded-2xl border transition-all space-y-3 ${
                       isCompleted
-                        ? 'bg-slate-900/70 border-slate-800'
+                        ? 'bg-white dark:bg-slate-900/70 border-slate-200 dark:border-slate-800 shadow-sm'
                         : isScheduled
-                        ? 'bg-indigo-950/20 border-indigo-500/40 shadow-sm'
-                        : 'bg-slate-900/30 border-dashed border-slate-800/80 opacity-80'
+                        ? 'bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-500/40 shadow-sm'
+                        : isRescheduled
+                        ? 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-200 dark:border-amber-500/40'
+                        : isNoShow
+                        ? 'bg-red-50/40 dark:bg-red-950/20 border-red-200 dark:border-red-500/40'
+                        : 'bg-slate-50/60 dark:bg-slate-900/30 border-dashed border-slate-200 dark:border-slate-800/80 opacity-80'
                     }`}
                   >
                     {/* Cabeçalho do Card da Aula */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/60 pb-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-800/60 pb-3">
                       <div className="flex items-center gap-3">
                         <span
                           className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
                             isCompleted
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                               : isScheduled
-                              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 animate-pulse'
-                              : 'bg-slate-800/60 text-slate-500 border border-slate-700/40'
+                              ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 animate-pulse'
+                              : isRescheduled
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                              : isNoShow
+                              ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
+                              : 'bg-slate-100 dark:bg-slate-800/60 text-slate-500 border border-slate-200 dark:border-slate-700/40'
                           }`}
                         >
-                          {isCompleted ? <Check size={16} /> : `0${slot.index}`}
+                          {isCompleted ? <Check size={16} /> : isNoShow ? <XCircle size={16} /> : isRescheduled ? <RefreshCw size={14} /> : `0${slot.index}`}
                         </span>
 
                         <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-white text-base">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-bold text-slate-900 dark:text-white text-base">
                               {c?.title || slot.title}
                             </h3>
                             <span
                               className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                                 isCompleted
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
                                   : isScheduled
-                                  ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/30'
-                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+                                  ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30'
+                                  : isRescheduled
+                                  ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                                  : isNoShow
+                                  ? 'bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/30'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
                               }`}
                             >
-                              {isCompleted ? 'Concluída' : isScheduled ? 'Próxima Aula' : 'Planejada'}
+                              {isCompleted
+                                ? 'Concluída'
+                                : isScheduled
+                                ? 'Próxima Aula'
+                                : isRescheduled
+                                ? 'Reagendada'
+                                : isNoShow
+                                ? 'Falta Registrada'
+                                : 'Planejada'}
                             </span>
                           </div>
 
                           {c?.date && (
-                            <span className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                            <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-0.5">
                               <Clock size={12} />
                               {c.date}
                             </span>
@@ -309,8 +390,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
                           <span
                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${
                               c.modality === 'online'
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                : 'bg-slate-800 text-slate-300 border-slate-700'
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                             }`}
                           >
                             {c.modality === 'online' ? <Video size={13} /> : <MapPin size={13} />}
@@ -322,7 +403,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
                               href={c.online_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-colors shadow-sm"
+                              className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-sm"
                             >
                               <Video size={12} />
                               Ingressar na Sala
@@ -334,19 +415,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
 
                     {/* Resumo do Conteúdo */}
                     {c?.summary ? (
-                      <p className="text-xs sm:text-sm text-slate-300 leading-relaxed bg-slate-950/40 p-3.5 rounded-xl border border-slate-800/60">
+                      <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-950/40 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800/60">
                         {c.summary}
                       </p>
                     ) : isPlanned ? (
-                      <p className="text-xs text-slate-500 italic">
+                      <p className="text-xs text-slate-400 dark:text-slate-500 italic">
                         Tema curricular do ciclo programado para os próximos encontros.
                       </p>
                     ) : null}
 
                     {/* Homework */}
                     {c?.homework && (
-                      <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-950/20 border border-amber-500/20 text-xs text-amber-200">
-                        <BookOpen size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                      <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-500/20 text-xs text-amber-800 dark:text-amber-200">
+                        <BookOpen size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                         <div>
                           <span className="font-bold block">Tarefa de Casa / Prática:</span>
                           <span>{c.homework}</span>
@@ -361,7 +442,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
                           <button
                             key={m.id}
                             onClick={() => handleOpenMaterial(m)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-indigo-500/50 text-xs text-indigo-300 hover:text-white transition-all cursor-pointer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-indigo-500 text-xs text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-white transition-all cursor-pointer shadow-sm"
                           >
                             <Eye size={13} />
                             <span>Visualizar: {m.title}</span>
@@ -380,40 +461,52 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
         {activeTab === 'materiais' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {materials.length === 0 ? (
-              <div className="col-span-full p-8 text-center bg-slate-900/40 border border-slate-800 rounded-2xl">
-                <BookOpen size={36} className="mx-auto text-slate-600 mb-2" />
-                <p className="text-sm text-slate-400">Nenhum material cadastrado ainda.</p>
+              <div className="col-span-full p-8 text-center bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-2xl">
+                <BookOpen size={36} className="mx-auto text-slate-400 dark:text-slate-600 mb-2" />
+                <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum material cadastrado ainda.</p>
               </div>
             ) : (
               materials.map((m) => (
                 <div
                   key={m.id}
                   onClick={() => handleOpenMaterial(m)}
-                  className="p-5 rounded-2xl border border-slate-800/80 bg-slate-900/60 hover:bg-slate-900 hover:border-indigo-500/40 transition-all cursor-pointer group flex flex-col justify-between"
+                  className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900/60 hover:bg-slate-50 dark:hover:bg-slate-900 hover:border-indigo-400 dark:hover:border-indigo-500/40 transition-all cursor-pointer group flex flex-col justify-between shadow-sm"
                 >
                   <div>
                     <div className="flex items-center justify-between mb-3">
-                      <span className="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                        {m.type === 'pdf' || m.type === 'ebook' ? 'E-book / PDF' : m.type === 'md' ? 'Markdown' : m.type}
+                      <span className="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
+                        {m.type === 'pdf' || m.type === 'ebook'
+                          ? 'E-book / PDF'
+                          : m.type === 'image'
+                          ? 'Imagem'
+                          : m.type === 'md'
+                          ? 'Markdown'
+                          : m.type}
                       </span>
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-slate-400 dark:text-slate-500">
                         {m.created_at ? m.created_at.substring(0, 10) : ''}
                       </span>
                     </div>
 
-                    <h4 className="font-bold text-white text-base group-hover:text-indigo-300 transition-colors">
+                    <h4 className="font-bold text-slate-900 dark:text-white text-base group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
                       {m.title}
                     </h4>
 
                     {m.class_title && (
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                         Vinculado a: {m.class_title}
                       </p>
                     )}
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-indigo-400 group-hover:text-indigo-300 font-medium">
-                    <span>{m.type === 'pdf' || m.type === 'ebook' ? 'Ler na plataforma' : 'Acessar conteúdo'}</span>
+                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-indigo-600 dark:text-indigo-400 group-hover:text-indigo-500 dark:group-hover:text-indigo-300 font-semibold">
+                    <span>
+                      {m.type === 'pdf' || m.type === 'ebook'
+                        ? 'Ler na plataforma'
+                        : m.type === 'image'
+                        ? 'Visualizar imagem'
+                        : 'Acessar conteúdo'}
+                    </span>
                     <Eye size={14} />
                   </div>
                 </div>
@@ -422,63 +515,137 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
           </div>
         )}
 
-        {/* Tab 3: Histórico de Pacotes */}
+        {/* Tab 3: Histórico de Ciclos com Fechamento e Detalhamento */}
         {activeTab === 'historico' && (
           <div className="space-y-4">
+            <div className="text-xs text-slate-500 dark:text-slate-400 pb-1">
+              Clique em qualquer pacote quitado ou finalizado abaixo para auditar e visualizar o histórico exato das aulas daquele ciclo:
+            </div>
+
             {packageHistory.length === 0 ? (
-              <div className="p-8 text-center bg-slate-900/40 border border-slate-800 rounded-2xl">
-                <History size={36} className="mx-auto text-slate-600 mb-2" />
-                <p className="text-sm text-slate-400">Nenhum histórico disponível ainda.</p>
+              <div className="p-8 text-center bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-2xl">
+                <History size={36} className="mx-auto text-slate-400 dark:text-slate-600 mb-2" />
+                <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum histórico disponível ainda.</p>
               </div>
             ) : (
-              packageHistory.map((pkg, idx) => (
-                <div
-                  key={pkg.id}
-                  className="p-5 rounded-2xl border border-slate-800 bg-slate-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-white text-base">
-                        Ciclo #{packageHistory.length - idx} • {pkg.total_classes} Aulas
-                      </h4>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                          pkg.status === 'paid'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            : pkg.status === 'pending_payment'
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                            : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                        }`}
-                      >
-                        {pkg.status === 'paid'
-                          ? 'Quitado ✅'
-                          : pkg.status === 'pending_payment'
-                          ? 'Pendente'
-                          : 'Em Andamento'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {pkg.paid_at
-                        ? `Quitado em: ${pkg.paid_at.substring(0, 16)} via ${pkg.payment_method?.toUpperCase() || 'PIX'}`
-                        : pkg.closed_at
-                        ? `Concluído em: ${pkg.closed_at.substring(0, 16)}`
-                        : 'Ciclo em andamento'}
-                    </p>
-                  </div>
+              packageHistory.map((pkg, idx) => {
+                const isExpanded = expandedPackageId === pkg.id;
+                const cycleClasses = cycleClassesMap[pkg.id] || [];
+                const isLoadingCycle = loadingCycleId === pkg.id;
 
-                  <div className="text-left sm:text-right">
-                    <span className="text-base font-extrabold text-white block">
-                      {Number(pkg.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    </span>
+                return (
+                  <div
+                    key={pkg.id}
+                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 overflow-hidden shadow-sm transition-all"
+                  >
+                    {/* Cabeçalho do Ciclo Clicável */}
+                    <div
+                      onClick={() => handleToggleCycleDetails(pkg.id)}
+                      className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-bold text-slate-900 dark:text-white text-base">
+                            Ciclo #{packageHistory.length - idx} • {pkg.total_classes} Aulas
+                          </h4>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              pkg.status === 'paid'
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                                : pkg.status === 'pending_payment'
+                                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20'
+                                : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20'
+                            }`}
+                          >
+                            {pkg.status === 'paid'
+                              ? 'Quitado ✅'
+                              : pkg.status === 'pending_payment'
+                              ? 'Pendente'
+                              : 'Em Andamento'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          {pkg.paid_at
+                            ? `Quitado em: ${pkg.paid_at.substring(0, 16).replace('T', ' ')} via ${pkg.payment_method?.toUpperCase() || 'PIX'}`
+                            : pkg.closed_at
+                            ? `Concluído em: ${pkg.closed_at.substring(0, 16).replace('T', ' ')}`
+                            : 'Ciclo em andamento'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-4">
+                        <span className="text-base font-extrabold text-slate-900 dark:text-white">
+                          {Number(pkg.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                        <div className="flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 font-semibold">
+                          <span>{isExpanded ? 'Ocultar Aulas' : 'Ver Aulas'}</span>
+                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Detalhamento das Aulas deste Ciclo Específico */}
+                    {isExpanded && (
+                      <div className="px-5 pb-5 pt-2 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-950/40 space-y-3">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                          Aulas Realizadas neste Ciclo:
+                        </span>
+
+                        {isLoadingCycle ? (
+                          <div className="py-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                            <div className="w-4 h-4 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+                            <span>Carregando aulas do ciclo...</span>
+                          </div>
+                        ) : cycleClasses.length === 0 ? (
+                          <p className="text-xs text-slate-400 italic py-2">
+                            Nenhum registro de aula arquivado neste pacote.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {cycleClasses.map((item, cIdx) => (
+                              <div
+                                key={item.id}
+                                className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs space-y-1.5 shadow-sm"
+                              >
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                      Aula {cIdx + 1}:
+                                    </span>
+                                    <span className="font-semibold text-slate-900 dark:text-white">
+                                      {item.title}
+                                    </span>
+                                  </div>
+                                  <span className="text-slate-400 flex items-center gap-1 text-[11px]">
+                                    <Clock size={11} />
+                                    {item.date}
+                                  </span>
+                                </div>
+                                {item.summary && (
+                                  <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
+                                    {item.summary}
+                                  </p>
+                                )}
+                                {item.homework && (
+                                  <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/20 p-2 rounded-lg border border-amber-200 dark:border-amber-500/20">
+                                    <strong>Tarefa:</strong> {item.homework}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
       </div>
 
-      {/* Visualizador de PDF / E-book Integrado na Plataforma */}
+      {/* Visualizador de PDF / E-book */}
       {viewingPdf && (
         <PdfViewerModal
           title={viewingPdf.title}
@@ -487,32 +654,104 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
         />
       )}
 
+      {/* Visualizador de Imagens com Cópia e Download */}
+      {viewingImage && (
+        <div
+          onClick={() => setViewingImage(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+          >
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 shrink-0">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <ImageIcon size={18} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                  {viewingImage.title}
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleCopyImageUrl(viewingImage.url)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  {copiedImageLink ? (
+                    <>
+                      <Check size={14} className="text-emerald-500" />
+                      <span className="text-emerald-600 dark:text-emerald-400">Link Copiado!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={14} />
+                      <span>Copiar Link</span>
+                    </>
+                  )}
+                </button>
+
+                <a
+                  href={viewingImage.url}
+                  download
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
+                >
+                  <Download size={14} />
+                  <span>Baixar Imagem</span>
+                </a>
+
+                <button
+                  onClick={() => setViewingImage(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 overflow-auto flex-1 flex items-center justify-center bg-slate-100 dark:bg-slate-950">
+              <img
+                src={viewingImage.url}
+                alt={viewingImage.title}
+                className="max-h-[75vh] w-auto max-w-full rounded-xl object-contain shadow-lg"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Leitura de Markdown / Outros Materiais */}
       {selectedMaterial && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-8 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60 shrink-0">
+        <div
+          onClick={() => setSelectedMaterial(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden my-8 max-h-[85vh] flex flex-col"
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 shrink-0">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                   {selectedMaterial.type}
                 </span>
-                <h3 className="text-lg font-bold text-white">{selectedMaterial.title}</h3>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">{selectedMaterial.title}</h3>
               </div>
               <button
                 onClick={() => setSelectedMaterial(null)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1">
+            <div className="p-6 overflow-y-auto flex-1 bg-white dark:bg-slate-900">
               {selectedMaterial.type === 'md' && selectedMaterial.content_md ? (
                 <MarkdownViewer content={selectedMaterial.content_md} />
               ) : selectedMaterial.file_url ? (
                 <div className="text-center py-8 space-y-4">
-                  <FileText size={48} className="mx-auto text-indigo-400" />
-                  <p className="text-sm text-slate-300">Este arquivo está pronto para download.</p>
+                  <FileText size={48} className="mx-auto text-indigo-600 dark:text-indigo-400" />
+                  <p className="text-sm text-slate-700 dark:text-slate-300">Este arquivo está pronto para download.</p>
                   <a
                     href={selectedMaterial.file_url}
                     download
@@ -524,8 +763,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, tenant
                 </div>
               ) : selectedMaterial.external_url ? (
                 <div className="text-center py-8 space-y-4">
-                  <ExternalLink size={48} className="mx-auto text-emerald-400" />
-                  <p className="text-sm text-slate-300">Acesse o material no link externo:</p>
+                  <ExternalLink size={48} className="mx-auto text-emerald-600 dark:text-emerald-400" />
+                  <p className="text-sm text-slate-700 dark:text-slate-300">Acesse o material no link externo:</p>
                   <a
                     href={selectedMaterial.external_url}
                     target="_blank"
