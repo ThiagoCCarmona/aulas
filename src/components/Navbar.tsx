@@ -1,6 +1,7 @@
 import React from 'react';
 import { User, Tenant } from '../types';
-import { GraduationCap, LogOut, User as UserIcon, ShieldCheck, Sun, Moon } from 'lucide-react';
+import { GraduationCap, LogOut, User as UserIcon, ShieldCheck, Sun, Moon, MessageCircle } from 'lucide-react';
+import { api } from '../services/api';
 
 interface NavbarProps {
   user: User;
@@ -19,6 +20,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   onOpenSettings
 }) => {
+  const whatsappUrl = api.buildWhatsAppUrl(
+    tenant?.phone_whatsapp,
+    `Olá ${tenant?.name || 'Professor'}! Tudo bem? Estou acessando a plataforma de aulas e gostaria de falar com você.`
+  );
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-slate-950/80 backdrop-blur-md transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -43,7 +49,21 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Perfil & Ações */}
-        <div className="flex items-center gap-2.5 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Botão Falar no WhatsApp (Aluno) */}
+          {user.role === 'student' && (
+            <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Falar com o Professor via WhatsApp"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all"
+            >
+              <MessageCircle size={15} />
+              <span className="hidden sm:inline">Falar no WhatsApp</span>
+            </a>
+          )}
+
           {/* Botão de Alternância de Tema (Modo Claro / Escuro) */}
           <button
             onClick={onToggleTheme}

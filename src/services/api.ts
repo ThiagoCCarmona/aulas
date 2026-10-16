@@ -207,6 +207,17 @@ export const api = {
     return result;
   },
 
+  async updateClass(id: string, data: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/classes/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Erro ao atualizar aula');
+    return result;
+  },
+
   async deleteClass(id: string): Promise<any> {
     const res = await fetch(`${API_BASE}/classes/${id}`, {
       method: 'DELETE',
@@ -214,6 +225,15 @@ export const api = {
     });
     if (!res.ok) throw new Error('Erro ao deletar aula');
     return res.json();
+  },
+
+  buildWhatsAppUrl(phone?: string, message?: string): string {
+    const rawPhone = (phone || '5545991325244').replace(/\D/g, '');
+    const normalizedPhone = rawPhone.length >= 10 && rawPhone.length <= 11 && !rawPhone.startsWith('55')
+      ? `55${rawPhone}`
+      : (rawPhone || '5545991325244');
+    const textParam = message ? `?text=${encodeURIComponent(message)}` : '';
+    return `https://wa.me/${normalizedPhone}${textParam}`;
   },
 
   // Packages & Pix

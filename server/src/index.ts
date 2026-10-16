@@ -493,24 +493,42 @@ app.post('/api/classes', authMiddleware, teacherOnly, (req: AuthRequest, res) =>
 
     // Se fornecido material vinculado à aula, cadastra automaticamente
     if (material_title && material_type) {
+      const matId = `mat-${crypto.randomUUID()}`;
+      const isLocalUpload = typeof material_url === 'string' && material_url.startsWith('/uploads/');
+      const resolvedFileUrl = isLocalUpload
+        ? material_url
+        : (material_type === 'pdf' || material_type === 'zip' || material_type === 'file' || material_type === 'image') && !material_url?.startsWith('http')
+        ? material_url
+        : null;
+      const resolvedExternalUrl = !isLocalUpload && typeof material_url === 'string' && material_url.startsWith('http')
+        ? material_url
+        : (material_type === 'link' || material_type === 'ebook') && !isLocalUpload
+        ? material_url
+        : null;
+
       db.prepare(`
         INSERT INTO materials (id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        `mat-${crypto.randomUUID()}`,
+        matId,
         req.tenant!.id,
         student_id,
         classId,
         material_title,
         material_type,
-        material_type === 'pdf' || material_type === 'zip' || material_type === 'file' || material_type === 'image' ? material_url : null,
-        material_type === 'link' || material_type === 'ebook' ? material_url : null,
+        resolvedFileUrl || null,
+        resolvedExternalUrl || null,
         material_type === 'md' ? material_content_md : null
       );
+
+      db.prepare(`
+        INSERT OR IGNORE INTO material_recipients (id, tenant_id, material_id, student_id)
+        VALUES (?, ?, ?, ?)
+      `).run(`mr-${crypto.randomUUID()}`, req.tenant!.id, matId, student_id);
     }
   })();
 
-  // Apenas 'completed' ou 'no_show' consom o saldo de aulas do pacote
+  // Apenas 'completed' ou 'no_show' consomem o saldo de aulas do pacote
   const classCount = (db.prepare(`
     SELECT COUNT(*) as count FROM classes
     WHERE package_id = ? AND status IN ('completed', 'no_show')
@@ -525,21 +543,39 @@ app.post('/api/classes', authMiddleware, teacherOnly, (req: AuthRequest, res) =>
   });
 });
 
-// Marcar aula agendada/planejada como concluída
-app.put('/api/classes/:id/complete', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
-  const { summary, homework, online_url, status = 'completed' } = req.body;
+// Atualizar dados completos ou concluir aula
+const updateClassHandler = (req: AuthRequest, res: express.Response) => {
+  const { title, date, modality, summary, homework, online_url, teacher_notes, status } = req.body;
 
   db.prepare(`
     UPDATE classes
-    SET status = ?,
+    SET title = COALESCE(?, title),
+        date = COALESCE(?, date),
+        modality = COALESCE(?, modality),
+        status = COALESCE(?, status),
         summary = COALESCE(?, summary),
         homework = COALESCE(?, homework),
-        online_url = COALESCE(?, online_url)
+        online_url = COALESCE(?, online_url),
+        teacher_notes = COALESCE(?, teacher_notes)
     WHERE id = ? AND tenant_id = ?
-  `).run(status, summary || null, homework || null, online_url || null, req.params.id, req.tenant!.id);
+  `).run(
+    title ?? null,
+    date ?? null,
+    modality ?? null,
+    status ?? null,
+    summary !== undefined ? summary : null,
+    homework !== undefined ? homework : null,
+    online_url !== undefined ? online_url : null,
+    teacher_notes !== undefined ? teacher_notes : null,
+    req.params.id,
+    req.tenant!.id
+  );
 
   res.json({ message: 'Aula atualizada com sucesso!' });
-});
+};
+
+app.put('/api/classes/:id/complete', authMiddleware, teacherOnly, updateClassHandler);
+app.put('/api/classes/:id', authMiddleware, teacherOnly, updateClassHandler);
 
 app.delete('/api/classes/:id', authMiddleware, teacherOnly, (req: AuthRequest, res) => {
   db.prepare('DELETE FROM classes WHERE id = ? AND tenant_id = ?').run(req.params.id, req.tenant!.id);
