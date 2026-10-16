@@ -16,6 +16,7 @@ import { gerarPayloadPix, gerarQRCodeDataUrl } from './pix/pix.emv.js';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 
 // Inicializa banco de dados SQLite
@@ -57,10 +58,10 @@ const upload = multer({
   }
 });
 
-// Rate limiting: 5 tentativas de login por minuto por IP
+// Rate limiting: 20 tentativas de login por minuto por IP
 export const loginLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 5,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Muitas tentativas de login. Tente novamente em 1 minuto.' }
@@ -73,7 +74,8 @@ app.use(helmet({
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
       "frame-src": ["'self'", "https://meet.google.com"],
       "frame-ancestors": ["'self'"],
-      "img-src": ["'self'", "data:", "blob:"]
+      "img-src": ["'self'", "data:", "blob:"],
+      "object-src": ["'self'"]
     }
   },
   crossOriginEmbedderPolicy: false
@@ -82,11 +84,11 @@ app.use(helmet({
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Servir uploads com headers restritivos de segurança
+// Servir uploads com headers restritivos de segurança (bloqueando scripts mas permitindo leitor de PDF e imagens)
 app.use('/uploads', express.static(UPLOADS_DIR, {
   setHeaders: (res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "default-src 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'none'; object-src 'self'; img-src 'self' data: blob:; media-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'");
   }
 }));
 

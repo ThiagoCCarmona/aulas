@@ -7,6 +7,10 @@ set -e
 # Suporte a Subdomínios: *.aulas.tccodes.com.br
 # ==============================================================================
 
+# Garantir execução a partir do diretório do projeto (mesmo via atalho ou symlink)
+APP_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+cd "$APP_DIR"
+
 DOMAIN="${DOMAIN:-aulas.tccodes.com.br}"
 
 echo "=========================================================="
@@ -40,19 +44,28 @@ if [ ! -f .env ]; then
     echo "✅ .env criado com JWT_SECRET gerada automaticamente."
 fi
 
-# 4. Garantir pastas persistentes de banco SQLite e uploads
+# 4. Garantir pastas persistentes de banco SQLite e uploads com permissões adequadas
 mkdir -p data uploads
-chmod -R 755 data uploads
+chmod 755 data uploads 2>/dev/null || true
+if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo chmod -R 755 data uploads 2>/dev/null || true
+else
+    chmod -R 755 data uploads 2>/dev/null || true
+fi
 
-# 5. Atualizar código do repositório (caso esteja rodando via git clone)
+# 5. Atualizar código do repositório a partir do GitHub (main)
 if [ -d .git ]; then
-    echo "🔄 Verificando atualizações no Git..."
-    git pull --ff-only 2>/dev/null || true
+    echo "🔄 Buscando as alterações mais recentes no GitHub (main)..."
+    git config core.filemode false
+    git fetch origin main
+    git reset --hard origin/main
+    chmod +x deploy.sh 2>/dev/null || true
 fi
 
 # 6. Build e Inicialização dos Containers via Traefik Proxy
 echo "📦 Construindo e subindo container da aplicação..."
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
+docker image prune -f
 
 # 7. Aguardar inicialização e verificar integridade
 echo "⏳ Aguardando serviços ficarem online..."
@@ -66,10 +79,9 @@ echo "=========================================================="
 echo "🎉 Deploy concluído com sucesso!"
 echo "🌐 Acesse a plataforma: https://$DOMAIN"
 echo ""
-echo "🔑 Acessos de Demonstração:"
-echo "   👨‍🏫 Professor: thiago@aulas.com | Senha: admin123"
-echo "   👨‍🎓 Aluno 1:   5511988887777 (ou carlos@aluno.com) | Senha: aluno123"
-echo "   👩‍🎓 Aluno 2:   mariana@aluno.com | Senha: aluno123"
+echo "🔑 Acesso do Professor (Produção):"
+echo "   👨‍🏫 Professor: carmona.c.thiago@gmail.com (ou WhatsApp: 45991325244)"
+echo "   🔒 Senha:      admin123 (ou senha pessoal definida no primeiro acesso)"
 echo ""
 echo "⚙️  Subdomínios ativos (Multi-Tenant):"
 echo "   Exemplo: https://thiago.$DOMAIN"

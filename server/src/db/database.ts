@@ -132,36 +132,39 @@ export function initDatabase() {
   try {
     const classesTable = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='classes'").get() as any;
     if (classesTable && classesTable.sql && !classesTable.sql.includes("'no_show'")) {
-      db.transaction(() => {
-        db.exec("PRAGMA foreign_keys = OFF");
-        db.exec(`
-          CREATE TABLE classes_new (
-            id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
-            student_id TEXT NOT NULL,
-            package_id TEXT,
-            date TEXT NOT NULL,
-            title TEXT NOT NULL,
-            summary TEXT,
-            modality TEXT NOT NULL DEFAULT 'presencial' CHECK(modality IN ('presencial', 'online')),
-            status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('completed', 'scheduled', 'planned', 'rescheduled', 'no_show')),
-            online_url TEXT,
-            homework TEXT,
-            teacher_notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
-            FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE SET NULL
-          );
-          INSERT INTO classes_new (id, tenant_id, student_id, package_id, date, title, summary, modality, status, online_url, homework, teacher_notes, created_at)
-          SELECT id, tenant_id, student_id, package_id, date, title, summary, modality, COALESCE(status, 'completed'), online_url, homework, teacher_notes, created_at FROM classes;
-          DROP TABLE classes;
-          ALTER TABLE classes_new RENAME TO classes;
-          CREATE INDEX IF NOT EXISTS idx_classes_package ON classes(package_id);
-          CREATE INDEX IF NOT EXISTS idx_classes_student ON classes(student_id);
-        `);
-        db.exec("PRAGMA foreign_keys = ON");
-      })();
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.transaction(() => {
+          db.exec(`
+            CREATE TABLE classes_new (
+              id TEXT PRIMARY KEY,
+              tenant_id TEXT NOT NULL,
+              student_id TEXT NOT NULL,
+              package_id TEXT,
+              date TEXT NOT NULL,
+              title TEXT NOT NULL,
+              summary TEXT,
+              modality TEXT NOT NULL DEFAULT 'presencial' CHECK(modality IN ('presencial', 'online')),
+              status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('completed', 'scheduled', 'planned', 'rescheduled', 'no_show')),
+              online_url TEXT,
+              homework TEXT,
+              teacher_notes TEXT,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+              FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+              FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE SET NULL
+            );
+            INSERT INTO classes_new (id, tenant_id, student_id, package_id, date, title, summary, modality, status, online_url, homework, teacher_notes, created_at)
+            SELECT id, tenant_id, student_id, package_id, date, title, summary, modality, COALESCE(status, 'completed'), online_url, homework, teacher_notes, created_at FROM classes;
+            DROP TABLE classes;
+            ALTER TABLE classes_new RENAME TO classes;
+            CREATE INDEX IF NOT EXISTS idx_classes_package ON classes(package_id);
+            CREATE INDEX IF NOT EXISTS idx_classes_student ON classes(student_id);
+          `);
+        })();
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
     }
   } catch (err) {
     console.error('Erro na migração de classes:', err);
@@ -170,32 +173,35 @@ export function initDatabase() {
   try {
     const matTable = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='materials'").get() as any;
     if (matTable && matTable.sql && !matTable.sql.includes("'image'")) {
-      db.transaction(() => {
-        db.exec("PRAGMA foreign_keys = OFF");
-        db.exec(`
-          CREATE TABLE materials_new (
-            id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
-            student_id TEXT,
-            class_id TEXT,
-            title TEXT NOT NULL,
-            type TEXT NOT NULL CHECK(type IN ('pdf', 'ebook', 'md', 'zip', 'link', 'audio', 'slides', 'image')),
-            file_url TEXT,
-            external_url TEXT,
-            content_md TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
-            FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE SET NULL
-          );
-          INSERT INTO materials_new (id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md, created_at)
-          SELECT id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md, created_at FROM materials;
-          DROP TABLE materials;
-          ALTER TABLE materials_new RENAME TO materials;
-          CREATE INDEX IF NOT EXISTS idx_materials_student ON materials(student_id);
-        `);
-        db.exec("PRAGMA foreign_keys = ON");
-      })();
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.transaction(() => {
+          db.exec(`
+            CREATE TABLE materials_new (
+              id TEXT PRIMARY KEY,
+              tenant_id TEXT NOT NULL,
+              student_id TEXT,
+              class_id TEXT,
+              title TEXT NOT NULL,
+              type TEXT NOT NULL CHECK(type IN ('pdf', 'ebook', 'md', 'zip', 'link', 'audio', 'slides', 'image')),
+              file_url TEXT,
+              external_url TEXT,
+              content_md TEXT,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+              FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+              FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE SET NULL
+            );
+            INSERT INTO materials_new (id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md, created_at)
+            SELECT id, tenant_id, student_id, class_id, title, type, file_url, external_url, content_md, created_at FROM materials;
+            DROP TABLE materials;
+            ALTER TABLE materials_new RENAME TO materials;
+            CREATE INDEX IF NOT EXISTS idx_materials_student ON materials(student_id);
+          `);
+        })();
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
     }
   } catch (err) {
     console.error('Erro na migração de materials:', err);
@@ -204,29 +210,32 @@ export function initDatabase() {
   try {
     const usersTable = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get() as any;
     if (usersTable && usersTable.sql && (!usersTable.sql.includes('must_change_password') || usersTable.sql.includes('email TEXT NOT NULL') || usersTable.sql.includes('UNIQUE(tenant_id, email)'))) {
-      db.transaction(() => {
-        db.exec("PRAGMA foreign_keys = OFF");
-        db.exec(`
-          CREATE TABLE users_new (
-            id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            email TEXT,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('teacher', 'student', 'superadmin')),
-            phone TEXT,
-            must_change_password INTEGER NOT NULL DEFAULT 1,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
-          );
-          INSERT INTO users_new (id, tenant_id, name, email, password_hash, role, phone, must_change_password, created_at)
-          SELECT id, tenant_id, name, email, password_hash, role, phone, 1, created_at FROM users;
-          DROP TABLE users;
-          ALTER TABLE users_new RENAME TO users;
-          CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
-        `);
-        db.exec("PRAGMA foreign_keys = ON");
-      })();
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.transaction(() => {
+          db.exec(`
+            CREATE TABLE users_new (
+              id TEXT PRIMARY KEY,
+              tenant_id TEXT NOT NULL,
+              name TEXT NOT NULL,
+              email TEXT,
+              password_hash TEXT NOT NULL,
+              role TEXT NOT NULL CHECK(role IN ('teacher', 'student', 'superadmin')),
+              phone TEXT,
+              must_change_password INTEGER NOT NULL DEFAULT 1,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+            );
+            INSERT INTO users_new (id, tenant_id, name, email, password_hash, role, phone, must_change_password, created_at)
+            SELECT id, tenant_id, name, email, password_hash, role, phone, 1, created_at FROM users;
+            DROP TABLE users;
+            ALTER TABLE users_new RENAME TO users;
+            CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
+          `);
+        })();
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
     }
   } catch (err) {
     console.error('Erro na migração de users:', err);
@@ -239,7 +248,10 @@ function seedDefaultData() {
   const adminEmail = process.env.ADMIN_EMAIL || 'carmona.c.thiago@gmail.com';
   const adminPass = process.env.ADMIN_PASSWORD || 'admin123';
   const adminName = process.env.ADMIN_NAME || 'Prof. Thiago Carmona';
-  const adminPhone = process.env.ADMIN_PHONE || '5511999998888';
+  const adminPhone = process.env.ADMIN_PHONE || '5545991325244';
+  const adminPixKey = process.env.ADMIN_PIX_KEY || '45991325244';
+  const adminPixName = process.env.ADMIN_PIX_NAME || 'Thiago Corobinski Carmona';
+  const adminPixCity = process.env.ADMIN_PIX_CITY || 'FOZ DO IGUACU';
 
   const tenantId = 'tenant-thiago-01';
   const existingTenant = db.prepare('SELECT id FROM tenants WHERE slug = ?').get('thiago') as any;
@@ -252,9 +264,9 @@ function seedDefaultData() {
       'thiago',
       adminName,
       adminEmail,
-      '11999998888',
-      'Thiago Corobinski Carmona',
-      'Sao Paulo',
+      adminPixKey,
+      adminPixName,
+      adminPixCity,
       adminPhone
     );
 
@@ -264,8 +276,8 @@ function seedDefaultData() {
     // Criar Usuário Professor Administrador
     const teacherId = 'user-teacher-thiago';
     db.prepare(`
-      INSERT INTO users (id, tenant_id, name, email, password_hash, role, phone)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (id, tenant_id, name, email, password_hash, role, phone, must_change_password)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     `).run(
       teacherId,
       tenantId,
@@ -276,22 +288,35 @@ function seedDefaultData() {
       adminPhone
     );
   } else {
-    // Sincroniza dados do professor principal garantindo que possa logar com email e senha reais
+    // Sincroniza dados do professor principal preservando senha pessoal caso já tenha sido alterada
     const teacherUser = db.prepare("SELECT * FROM users WHERE role = 'teacher' LIMIT 1").get() as any;
     if (teacherUser) {
-      const salt = bcrypt.genSaltSync(10);
-      const teacherPasswordHash = bcrypt.hashSync(adminPass, salt);
-      db.prepare(`
-        UPDATE users 
-        SET email = ?, name = ?, password_hash = ?
-        WHERE id = ?
-      `).run(adminEmail, adminName, teacherPasswordHash, teacherUser.id);
+      if (teacherUser.must_change_password !== 0 || process.env.ADMIN_PASSWORD) {
+        const salt = bcrypt.genSaltSync(10);
+        const teacherPasswordHash = bcrypt.hashSync(adminPass, salt);
+        db.prepare(`
+          UPDATE users 
+          SET email = ?, name = COALESCE(NULLIF(name, ''), ?), phone = COALESCE(NULLIF(NULLIF(phone, ''), '5511999998888'), ?), password_hash = ?
+          WHERE id = ?
+        `).run(adminEmail, adminName, adminPhone, teacherPasswordHash, teacherUser.id);
+      } else {
+        db.prepare(`
+          UPDATE users 
+          SET email = ?, name = COALESCE(NULLIF(name, ''), ?), phone = COALESCE(NULLIF(NULLIF(phone, ''), '5511999998888'), ?)
+          WHERE id = ?
+        `).run(adminEmail, adminName, adminPhone, teacherUser.id);
+      }
 
       db.prepare(`
         UPDATE tenants
-        SET name = ?, email = ?
+        SET email = ?,
+            name = COALESCE(NULLIF(name, ''), ?),
+            phone_whatsapp = COALESCE(NULLIF(NULLIF(phone_whatsapp, ''), '5511999998888'), ?),
+            pix_key = COALESCE(NULLIF(NULLIF(pix_key, ''), '11999998888'), ?),
+            pix_name = COALESCE(NULLIF(pix_name, ''), ?),
+            pix_city = COALESCE(NULLIF(NULLIF(pix_city, ''), 'Sao Paulo'), ?)
         WHERE id = ?
-      `).run(adminName, adminEmail, existingTenant.id);
+      `).run(adminEmail, adminName, adminPhone, adminPixKey, adminPixName, adminPixCity, existingTenant.id);
     }
   }
 

@@ -12,20 +12,34 @@ import {
 const API_BASE = '/api';
 
 export function getTenantSlug(): string {
-  // 1. LocalStorage se configurado manualmente
+  const systemPrefixes = ['www', 'aulas', 'app', 'plataforma', 'portal', 'api', 'admin', 'mail', 'undefined', 'null'];
+
+  // 1. LocalStorage se configurado manualmente e válido (limpa 'aulas' legado se existir)
   const saved = localStorage.getItem('tenantSlug');
-  if (saved && saved !== 'aulas' && saved !== 'app') return saved;
+  if (saved && !systemPrefixes.includes(saved.toLowerCase())) {
+    return saved;
+  }
+  if (saved) {
+    localStorage.removeItem('tenantSlug');
+  }
 
   // 2. Subdomínio do professor
   const host = window.location.hostname.toLowerCase();
   
-  // Ignora IPs numéricos (ex: 127.0.0.1, 192.168.x.x) e localhost
-  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host === 'localhost') {
+  // Ignora IPs numéricos (ex: 127.0.0.1, 192.168.x.x), localhost e domínio raiz
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host === 'localhost' || host === 'aulas.tccodes.com.br') {
+    return 'thiago';
+  }
+
+  if (host.endsWith('.aulas.tccodes.com.br')) {
+    const sub = host.replace('.aulas.tccodes.com.br', '');
+    if (sub && !systemPrefixes.includes(sub)) {
+      return sub;
+    }
     return 'thiago';
   }
 
   const parts = host.split('.');
-  const systemPrefixes = ['www', 'aulas', 'app', 'plataforma', 'portal', 'api', 'admin', 'mail'];
 
   // Só considera subdomínio se não for um prefixo de infraestrutura/sistema
   if (parts.length >= 2 && !systemPrefixes.includes(parts[0])) {
@@ -37,7 +51,11 @@ export function getTenantSlug(): string {
 }
 
 export function setTenantSlug(slug: string) {
-  localStorage.setItem('tenantSlug', slug);
+  if (slug && slug !== 'aulas' && slug !== 'undefined' && slug !== 'null') {
+    localStorage.setItem('tenantSlug', slug);
+  } else {
+    localStorage.removeItem('tenantSlug');
+  }
 }
 
 function getHeaders(isFormData = false): HeadersInit {

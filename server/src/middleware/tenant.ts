@@ -23,13 +23,13 @@ export function tenantMiddleware(req: TenantRequest, res: Response, next: NextFu
     explicitSlug = req.query.tenant;
   }
 
-  const systemSlugs = new Set(['www', 'aulas', 'app', 'plataforma', 'portal', 'api', 'admin', 'localhost', '127']);
+  const systemSlugs = new Set(['www', 'aulas', 'app', 'plataforma', 'portal', 'api', 'admin', 'localhost', '127', 'undefined', 'null']);
 
-  let slug = explicitSlug;
+  let slug = explicitSlug ? explicitSlug.trim().toLowerCase() : undefined;
 
   // Se o slug explicitado for apenas o nome da aplicação ou de infraestrutura, desconsidera
-  if (slug && systemSlugs.has(slug.toLowerCase())) {
-    slug = undefined as any;
+  if (slug && systemSlugs.has(slug)) {
+    slug = undefined;
     explicitSlug = undefined as any;
   }
 
@@ -37,9 +37,14 @@ export function tenantMiddleware(req: TenantRequest, res: Response, next: NextFu
   if (!slug) {
     const rawHost = req.hostname || req.headers.host || '';
     const host = rawHost.split(':')[0].toLowerCase();
-    
-    // Não tenta extrair subdomínio se for endereço IP
-    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) {
+    const domain = (process.env.DOMAIN || 'aulas.tccodes.com.br').toLowerCase();
+
+    if (host.endsWith('.' + domain)) {
+      const sub = host.slice(0, -(domain.length + 1));
+      if (sub && !systemSlugs.has(sub)) {
+        slug = sub;
+      }
+    } else if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) {
       const parts = host.split('.');
       if (parts.length >= 2 && !systemSlugs.has(parts[0])) {
         slug = parts[0];
@@ -57,7 +62,7 @@ export function tenantMiddleware(req: TenantRequest, res: Response, next: NextFu
   if (!tenant) {
     if (!explicitSlug || systemSlugs.has(explicitSlug.toLowerCase())) {
       // Tenta obter o primeiro tenant do sistema
-      const firstTenant = db.prepare('SELECT * FROM tenants LIMIT 1').get() as any;
+      const firstTenant = db.prepare('SELECT * FROM tenants ORDER BY created_at ASC LIMIT 1').get() as any;
       if (firstTenant) {
         req.tenant = firstTenant;
         return next();
